@@ -15,7 +15,7 @@ from sltools.transform import Transformation, \
     transform_durations, transform_glosses, transform_pose2d, transform_frames
 from sltools.utils import split_seq, join_seqs
 
-tmpdir = os.path.dirname(os.path.realpath(__file__))
+tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache")
 gloss_seqs = None
 train_subset, val_subset, test_subset = None, None, None
 pose2d_seqs = None

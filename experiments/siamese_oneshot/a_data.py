@@ -17,7 +17,7 @@ from sltools.preprocess import interpolate_positions
 from datasets import chalearn2017 as dataset
 
 
-tmpdir = os.path.dirname(os.path.realpath(__file__))
+tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'cache')
 train_subset, val_subset, test_subset = None, None, None
 labels = None
 durations = None

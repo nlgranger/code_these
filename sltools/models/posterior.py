@@ -5,20 +5,17 @@ import numpy as np
 import theano
 import theano.tensor as T
 import lasagne
-from lproc import rmap
 
 from sltools.nn_utils import log_softmax, categorical_crossentropy_logdomain
 
 
 class PosteriorModel:
-    def __init__(self, build_encoder, nstates, max_len, batch_size,
-                 multiple_inputs=False, input_shapes=None):
+    def __init__(self, build_encoder, nstates, max_len, batch_size, input_shapes=None):
         self.build_encoder = build_encoder
         self.nstates = nstates
         self.max_len = max_len
         self.batch_size = batch_size
-        self.input_shapes = input_shapes if multiple_inputs else [input_shapes]
-        self.multiple_inputs = multiple_inputs
+        self.input_shapes = input_shapes
 
         self.input_vars = None
         self.l_in = None
@@ -28,17 +25,13 @@ class PosteriorModel:
         self._forward = None
 
     def __getstate__(self):
-        if not self.multiple_inputs and self.input_shapes is not None:
-            input_shapes_arg = self.input_shapes[0]
-        else:
-            input_shapes_arg = self.input_shapes
+        input_shapes_arg = self.input_shapes
 
         state = {'build_encoder': self.build_encoder,
                  'nstates': self.nstates,
                  'max_len': self.max_len,
                  'batch_size': self.batch_size,
-                 'input_shapes': input_shapes_arg,
-                 'multiple_inputs': self.multiple_inputs}
+                 'input_shapes': input_shapes_arg}
 
         if self.l_out is not None:
             layers = lasagne.layers.get_all_layers(self.l_out)
@@ -119,8 +112,6 @@ class PosteriorModel:
     def fit(self, X, y, weights=None, refit=False,
             n_epochs=15, l_rate=0.0002, loss="cross_entropy", updates="adam",
             filter_chunks=None, callback=None):
-        if not self.multiple_inputs:
-            X = rmap(lambda x: (x,), X)
 
         # Build/compile model
         if not self.l_out or not refit:
@@ -143,8 +134,6 @@ class PosteriorModel:
 
         if weights is None:
             weights = np.ones((self.nstates,))
-        elif hasattr(weights, "__call__"):
-            weights = np.asarray(weights(X, y, chunks, self.nstates))
         else:
             weights = np.asarray(weights)
         weights = theano.shared(weights.astype(theano.config.floatX))

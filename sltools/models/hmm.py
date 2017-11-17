@@ -9,20 +9,27 @@ from datasets.utils import gloss2seq
 
 
 class HMMRecognizer:
-    def __init__(self, chains_lengths, posterior_model, multiple_inputs=False):
+    def __init__(self, chains_lengths, posterior_model, labels, multiple_inputs=False):
         # Create HMM
         # idle_state -> [nlabels] * lr-words models -> idle_state
 
         self.chains_lengths = np.array(chains_lengths)
-        self.posterior = posterior_model
         self.multiple_inputs = multiple_inputs
-
+        self.posterior = posterior_model
         self.hmm = None
-        self.logpriors = None  # p(state)
-        self.labels = None
+
+        self.labels = labels
+        self.label_masks = {l: np.full((self.nstates,), -np.inf)
+                            for l in self.labels + [0]}
+        self.label_masks[0][-1] = 0
+        for i in range(self.nlabels):
+            axes = sum(self.chains_lengths[:i]), sum(self.chains_lengths[:i + 1])
+            self.label_masks[self.labels[i]][axes[0]:axes[1]] = 0
+
+        self.p_s = None  # p(state)
+        self.p_idle2gesture = None
         self.state2idx = None  # pomegranate -> our indexing
         self.state2label = None  # our indexing -> labels
-        self.label_masks = None
 
     @property
     def nlabels(self):
@@ -32,6 +39,10 @@ class HMMRecognizer:
     def nstates(self):
         return sum(self.chains_lengths) + 1
 
+    @property
+    def p_idle2idle(self):
+        return 1 - self.p_idle2gesture * self.nlabels
+
     def predict_states(self, X):
         if not self.multiple_inputs:
             X = rmap(lambda x_: (x_,), X)
@@ -39,7 +50,7 @@ class HMMRecognizer:
         predictions = []
         for x in X:
             logposteriors = self.posterior.predict_logproba(*x)
-            _, hmm_state_seq = self.hmm.viterbi(logposteriors - self.logpriors)
+            _, hmm_state_seq = self.hmm.viterbi(logposteriors - self.p_s)
             hmm_state_seq = np.array([s[0] for s in hmm_state_seq[1:]])
             predictions.append(hmm_state_seq)
 
@@ -48,36 +59,24 @@ class HMMRecognizer:
     def predict(self, X):
         return [self.state2label[seq] for seq in self.predict_states(X)]
 
-    def fit(self, X, gloss_seqs, priors_smoothing=0.5,
-            hmm_fit_args=None, posterior_fit_args=None, refit=False):
-        hmm_fit_args = hmm_fit_args or {}
-        posterior_fit_args = posterior_fit_args or {}
-
-        X_ = rmap(lambda x: (x,), X) if not self.multiple_inputs else X
-
-        if not refit:
-            self.hmm = None
-
-        self.labels = sorted(set(g[0] for gloss_seq in gloss_seqs for g in gloss_seq))
-        self.label_masks = {l: np.full((self.nstates,), -np.inf)
-                            for l in self.labels + [0]}
-        self.label_masks[0][-1] = 0
-        for i in range(self.nlabels):
-            axes = sum(self.chains_lengths[:i]), sum(self.chains_lengths[:i + 1])
-            self.label_masks[self.labels[i]][axes[0]:axes[1]] = 0
-
-        # fit the posterior model
-        self._fit_posterior(X, gloss_seqs, **posterior_fit_args)
-
+    def fit_priors(self, X, gloss_seqs, smoothing):
         # Compute priors
-        print("computing priors")
-        p_idle2gesture, p_idle2idle, log_priors = self._priors(X_, gloss_seqs)
-        # print(np.exp(log_priors))
-        # log_priors *= priors_smoothing  # smoothing
-        print("ignoring state priors!")
-        log_priors = np.zeros((self.nstates,))  # TODO: discuss use of priors!!
-        self.logpriors = log_priors - logsumexp(log_priors)
+        durations = [len(x[0]) for x in X]
 
+        n_transitions = sum([len(g) for g in gloss_seqs])
+        n_idle = sum([d - sum([g[2] - g[1] for g in gseq])
+                      for d, gseq in zip(durations, gloss_seqs)])
+        self.p_idle2gesture = n_transitions / n_idle / self.nlabels
+
+        self.p_s = logsumexp([
+            logsumexp(self.posterior.predict_logproba(*x), axis=0)
+            for x in X], axis=0)
+        self.p_s -= logsumexp(self.p_s)
+
+        self.p_s *= smoothing
+        self.p_s -= logsumexp(self.p_s)
+
+    def fit_transitions(self, X, gloss_seqs, **hmm_fit_args):
         # Train individual word models
         params = []
 
@@ -89,11 +88,11 @@ class HMMRecognizer:
             subsgments = [(seq, start, stop)
                           for seq, gloss_seq in enumerate(gloss_seqs)
                           for l, start, stop in gloss_seq if l == self.labels[i]]
-            Xw = [tuple(Xm[start:stop] for Xm in X_[seq])
+            Xw = [tuple(Xm[start:stop] for Xm in X[seq])
                   for seq, start, stop in subsgments]
             Xw = [self.posterior.predict_logproba(*x)[:, axes[0]:axes[1]]
                   for x in Xw]
-            Xw = [x - self.logpriors[None, axes[0]:axes[1]] for x in Xw]
+            Xw = [x - self.p_s[None, axes[0]:axes[1]] for x in Xw]
             # Xw = [x - logsumexp(x, axis=1, keepdims=True) for x in Xw]
 
             # pseudo log-likelihoods
@@ -113,7 +112,7 @@ class HMMRecognizer:
         self.hmm.start.name = str(-1)
         self.hmm.end.name = str(self.nstates)
         self.hmm.add_transition(self.hmm.start, states[-1], 1)
-        self.hmm.add_transition(states[-1], states[-1], p_idle2idle)
+        self.hmm.add_transition(states[-1], states[-1], self.p_idle2idle)
 
         for i in range(self.nlabels):
             state_offset = np.sum(self.chains_lengths[:i])
@@ -123,7 +122,7 @@ class HMMRecognizer:
                 # Adjust indexes and parameters to integrate within full model
                 s2 = -1 if s2 == l else s2 + state_offset
                 if s1 == -1:
-                    p = p_idle2gesture
+                    p = self.p_idle2gesture
                 else:
                     s1 += state_offset
 
@@ -142,27 +141,19 @@ class HMMRecognizer:
                                      for s in self.hmm.states
                                      if int(s.name) not in {-1, self.nstates}])
 
-        return self
+    def fit_posterior(self, X_seqs, state_seqs, **posterior_fit_args):
+        self.posterior.fit(X_seqs, state_seqs, **posterior_fit_args)
 
-    def _fit_posterior(self, X_seqs, gloss_seqs, **posterior_fit_args):
-        if self.hmm is None:  # fresh start -> hard label assignment
-            print("generating hard state alignment")
-            if self.multiple_inputs:
-                seqs_duration = [len(x[0]) for x in X_seqs]
-            else:
-                seqs_duration = [len(x) for x in X_seqs]
-            y_seqs = [self._linearstateassignment(g, d)
-                      for g, d in zip(gloss_seqs, seqs_duration)]
+    def align_states(self, X_seqs, gloss_seqs, linear=False):
+        if linear:  # fresh start -> hard label assignment
+            seqs_duration = [len(x[0]) for x in X_seqs]
+            return [self._linearstateassignment(g, d)
+                    for g, d in zip(gloss_seqs, seqs_duration)]
 
         else:
-            print("updating state alignment ...", end='', flush=True)
-            y_seqs = [self.state2idx[self._supervized_state_alignment(f_seq, s_seq)]
-                      for f_seq, s_seq in zip(X_seqs, gloss_seqs)]
-
-            print('done')
-
-        # train
-        self.posterior.fit(X_seqs, y_seqs, **posterior_fit_args)
+            assert self.hmm is not None
+            return [self.state2idx[self._supervized_state_alignment(f_seq, s_seq)]
+                    for f_seq, s_seq in zip(X_seqs, gloss_seqs)]
 
     def _linearstateassignment(self, gloss_seq, seq_duration):
         """Linearly spread states within subsequences ('hard' state assignment)."""
@@ -185,7 +176,7 @@ class HMMRecognizer:
         else:
             logposterior_seq = self.posterior.predict_logproba(feat_seq)
         logposterior_seq = self._enforce_annotations(logposterior_seq, gloss_seq)
-        _, state_seq = self.hmm.viterbi(logposterior_seq - self.logpriors)
+        _, state_seq = self.hmm.viterbi(logposterior_seq - self.p_s)
         state_seq = np.array([s[0] for s in state_seq[1:]])
         return state_seq
 
@@ -229,7 +220,7 @@ class HMMRecognizer:
         wmodel.add_transition(states[-1], wmodel.end, 0.15)
         wmodel.add_transition(states[-2], states[1], 0.05)
 
-        for s in range(2, nstates-1):
+        for s in range(2, nstates - 1):
             wmodel.add_transition(states[s - 2], states[s], 0.05)
 
         wmodel.bake()
@@ -241,17 +232,3 @@ class HMMRecognizer:
 
         return [(int(e[0].name), int(e[1].name), np.exp(e[2]['probability']))
                 for e in wmodel.graph.edges(data=True)]
-
-    def _priors(self, X, gloss_seqs):
-        durations = [len(x[0]) for x in X]
-
-        n_transitions = sum([len(g) for g in gloss_seqs])
-        n_idle = sum([d - sum([g[2] - g[1] for g in gseq])
-                      for d, gseq in zip(durations, gloss_seqs)])
-        p_idle2gesture = n_transitions / n_idle / self.nlabels
-        p_idle2idle = 1 - p_idle2gesture * self.nlabels
-
-        state_priors = logsumexp([logsumexp(self.posterior.predict_logproba(*x), axis=0)
-                                  for x in X], axis=0)
-        state_priors -= logsumexp(state_priors)
-        return p_idle2gesture, p_idle2idle, state_priors

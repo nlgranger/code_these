@@ -3,12 +3,11 @@
 import os
 import pickle as pkl
 import shelve
-from collections import Counter
 
 import numpy as np
 from lproc import rmap, subset, SerializableFunc
 
-from ch14dataset import gloss2seq
+from datasets.utils import gloss2seq
 from sltools.models import HMMRecognizer, PosteriorModel
 from sltools.nn_utils import compute_scores
 
@@ -50,40 +49,8 @@ def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
     return report
 
 
-batch_losses = []
-epoch_losses = []
-
-
-@SerializableFunc
-def callback(epoch, n_epochs, batch, n_batches, loss):
-    batch_losses.append(loss)
-    print("\rbatch {:>5d}/{:<5d} loss : {:2.4f}".format(
-        batch + 1, n_batches, loss), end='', flush=True)
-
-    if batch + 1 == n_batches:
-        epoch_loss = np.mean(batch_losses[-n_batches // 10:])
-        epoch_losses.append(epoch_loss)
-        print("\repoch {:>5d}/{:<5d} loss : {:2.4f}".format(
-            epoch + 1, n_epochs, epoch_loss))
-
-
 # Parametric settings -------------------------------------------------------------------
 
-@SerializableFunc
-def compute_weights(X, y, chunks, n_states):
-    del X
-    counts = Counter({i: 0 for i in range(n_states)})
-    for seq, start, stop in chunks:
-        counts.update(y[seq][start:stop])
-    counts = np.asarray(sorted(counts.items()))[:, 1]
-    weights = np.power((counts + 100) / counts.max(), -0.7)
-    weights = weights / np.sum(weights) * n_states
-    # print(np.array2string(counts, precision=2))
-    # print(np.array2string(weights, precision=2))
-    return weights
-
-
-# @SerializableFunc
 # def filter_chunks(X, y, chunks, idle_state):
 #     del X
 #     return [(seq, start, stop) for seq, start, stop
@@ -99,25 +66,29 @@ def filter_chunks(X, y, chunks, idle_state):
 # Training script -----------------------------------------------------------------------
 
 def main():
-    from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, seqs_duration, \
-        train_subset, val_subset
-    from experiments.ch14_skel.b_preprocess import feat_seqs
-    from experiments.ch14_skel.c_models import build_encoder
-
-    # from sltools.ch14_bgr.a_data import tmpdir, gloss_seqs, seqs_duration, \
+    # from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
     #     train_subset, val_subset
-    # from sltools.ch14_bgr.b_preprocess import feats_seqs
-    # from sltools.ch14_bgr.c_models import build_encoder
+    # from experiments.ch14_skel.b_preprocess import feat_seqs
+    # from experiments.ch14_skel.c_models import build_encoder
+    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
+
+    from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
+        train_subset, val_subset
+    from experiments.ch14_bgr.b_preprocess import feat_seqs
+    from experiments.ch14_bgr.c_models import build_encoder
+    feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # Load data -------------------------------------------------------------------------
 
     feats_seqs_train = subset(feat_seqs, train_subset)
     gloss_seqs_train = subset(gloss_seqs, train_subset)
-    seqs_durations_train = subset(seqs_duration, train_subset)
+    seqs_durations_train = subset(durations, train_subset)
 
     feats_seqs_val = subset(feat_seqs, val_subset)
     gloss_seqs_val = subset(gloss_seqs, val_subset)
-    seqs_durations_val = subset(seqs_duration, val_subset)
+    seqs_durations_val = subset(durations, val_subset)
+
+    labels = sorted(set(g for gs in gloss_seqs for g, _, _ in gs))
 
     # Build model -----------------------------------------------------------------------
 
@@ -126,18 +97,26 @@ def main():
     max_len = 128
     batch_size = 16
     posterior = PosteriorModel(build_encoder, n_states, max_len, batch_size)
-    recognizer = HMMRecognizer(chains_lengths, posterior)
+    recognizer = HMMRecognizer(chains_lengths, posterior, labels)
 
     # Run training iterations -----------------------------------------------------------
 
     report = shelve.open(os.path.join(tmpdir, "hmm_report"),
                          protocol=pkl.HIGHEST_PROTOCOL)
     resume_at = len(report) - 1
-    l_rates = [0.01, 0.01] + [0.005] * 7 + [0.001] * 7
-    epochs = [20, 20] + [7] * (len(l_rates) - 2)
-    refit_posterior = [False, False] + [True] * (len(l_rates) - 2)
 
-    for i in range(len(l_rates)):
+    # Posterior training settings
+    l_rate = .001
+    updates = 'adam'
+    loss = 'cross_entropy'
+    min_progress = .01
+    epoch_schedule = [20, 20] + [7] * 14
+    refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)
+
+    # prior training_settings
+    prior_smoothing = 0  # Ignoring priors!!!!
+
+    for i in range(len(epoch_schedule)):
         print("# It. {} -----------------------------------------------------".format(i))
 
         # Resume interrupted training
@@ -147,23 +126,54 @@ def main():
         elif i == resume_at:
             print("reloading from partial training")
             recognizer = report[str(i)]['model']
+            settings = report[str(i)]['settings']
+            chains_lengths = settings['chains_lengths']
+            n_states = settings['n_states']
+            l_rate = settings['l_rate']
+            updates = settings['updates']
+            loss = settings['loss']
+            min_progress = settings['min_progress']
+            epoch_schedule = settings['epoch_schedule']
+            refit_schedule = settings['refit_schedule']
+            prior_smoothing = settings['prior_smoothing']
             continue
 
-        # Fit
-        fit_args = {
-            'refit': True,
-            'priors_smoothing': .5,
-            'hmm_fit_args': {
-                'verbose': False, 'stop_threshold': 1e-3, 'max_iterations': 50},
-            'posterior_fit_args': {
-                'l_rate': l_rates[i], 'n_epochs': epochs[i], 'refit': refit_posterior[i],
-                'loss': "hinge", 'updates': "adam",
-                'weights': compute_weights, 'filter_chunks': filter_chunks,
-                'callback': callback}
-        }
+        # Fit posterior
+        state_assignment = recognizer.align_states(feats_seqs_train, gloss_seqs_train,
+                                                   linear=(i == 0))
 
-        recognizer.fit(
-            feats_seqs_train, gloss_seqs_train, **fit_args)
+        counts = np.unique(np.concatenate(state_assignment), return_counts=True)[1]
+        weights = np.power((counts + 100) / counts.max(), -0.7)
+        weights = weights / np.sum(weights) * n_states
+
+        batch_losses = []
+        epoch_losses = []
+
+        def callback(epoch, n_epochs, batch, n_batches, loss):
+            batch_losses.append(loss)
+            print("\rbatch {:>5d}/{:<5d} loss : {:2.4f}".format(
+                batch + 1, n_batches, loss), end='', flush=True)
+
+            if batch + 1 == n_batches:
+                epoch_loss = np.mean(batch_losses[-n_batches // 10:])
+                epoch_losses.append(epoch_loss)
+                print("\repoch {:>5d}/{:<5d} loss : {:2.4f}".format(
+                    epoch + 1, n_epochs, epoch_loss))
+
+        recognizer.fit_posterior(feats_seqs_train, state_assignment,
+                                 refit=refit_schedule[i],
+                                 weights=weights, n_epochs=epoch_schedule[i],
+                                 l_rate=l_rate, loss=loss, updates=updates,
+                                 callback=callback)
+
+        # Fit priors
+        recognizer.fit_priors(feats_seqs_train, gloss_seqs_train,
+                              smoothing=prior_smoothing)
+
+        # Fit transitions
+        recognizer.fit_transitions(feats_seqs_train, gloss_seqs_train,
+                                   stop_threshold=1e-3, max_iterations=50,
+                                   verbose=False)
 
         # Update report
         if str(i - 1) in report.keys():
@@ -181,12 +191,32 @@ def main():
         report[str(i)] = {'train_report': train_report,
                           'val_report': val_report,
                           'model': pkl.loads(pkl.dumps(recognizer)),
-                          'fit_args': fit_args,
+                          'settings': {
+                              'chains_lengths': chains_lengths,
+                              'n_states': n_states,
+                              'max_len': 128,
+                              'batch_size': 16,
+                              'l_rate': .001,
+                              'updates': updates,
+                              'loss': loss,
+                              'min_progress': min_progress,
+                              'epoch_schedule': epoch_schedule,
+                              'refit_schedule': refit_schedule,
+                              'prior_smoothing': prior_smoothing,
+                          },
                           'batch_losses': batch_losses,
                           'epoch_losses': epoch_losses}
         report.sync()
         batch_losses.clear()
         epoch_losses.clear()
+
+        # Update training settings
+        n_steps = len(batch_losses)
+        b = np.cov(batch_losses, np.arange(n_steps))[1, 0] \
+            / np.var(np.arange(n_steps))
+        if b * n_steps > - min_progress:
+            l_rate *= .3
+            min_progress *= .3
 
         # Printout
         print("HMM Jaccard index: {:0.3f}".format(train_report['jaccard']))

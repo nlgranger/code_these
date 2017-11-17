@@ -5,6 +5,7 @@ from sltools.tconv import TemporalConv
 from sltools.nn_utils import DurationMaskLayer
 
 
+@SerializableFunc
 def build_encoder(l_in, params=None, freeze=False):
     dropout = 0.3
     tconv_sz = 17

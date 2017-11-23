@@ -2,7 +2,6 @@ import copy
 import numpy as np
 from scipy.misc import logsumexp
 import pomegranate
-from lproc import rmap
 
 from sltools.extra_distributions import PrecomputedDistribution
 from datasets.utils import gloss2seq
@@ -44,9 +43,6 @@ class HMMRecognizer:
         return 1 - self.p_idle2gesture * self.nlabels
 
     def predict_states(self, X):
-        if not self.multiple_inputs:
-            X = rmap(lambda x_: (x_,), X)
-
         predictions = []
         for x in X:
             logposteriors = self.posterior.predict_logproba(*x)
@@ -171,10 +167,7 @@ class HMMRecognizer:
         return labels
 
     def _supervized_state_alignment(self, feat_seq, gloss_seq):
-        if self.multiple_inputs:
-            logposterior_seq = self.posterior.predict_logproba(*feat_seq)
-        else:
-            logposterior_seq = self.posterior.predict_logproba(feat_seq)
+        logposterior_seq = self.posterior.predict_logproba(*feat_seq)
         logposterior_seq = self._enforce_annotations(logposterior_seq, gloss_seq)
         _, state_seq = self.hmm.viterbi(logposterior_seq - self.p_s)
         state_seq = np.array([s[0] for s in state_seq[1:]])

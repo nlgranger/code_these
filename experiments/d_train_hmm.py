@@ -24,11 +24,10 @@ def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
         compute_scores(preds, labels)
 
     # State-wise
-    preds = [np.argmax(model.posterior.predict_proba(x), axis=1)
+    preds = [np.argmax(model.posterior.predict_proba(*x), axis=1)
              for x in feats_seqs]
     if previous_model is None:  # fresh start -> hard label assignment
-        seqs_duration = rmap(len, feats_seqs)
-        state_labels = rmap(model._linearstateassignment, gloss_seqs, seqs_duration)
+        state_labels = rmap(model._linearstateassignment, gloss_seqs, seqs_durations)
     else:
         states = rmap(lambda f, g: previous_model._supervized_state_alignment(f, g),
                       feats_seqs, gloss_seqs)
@@ -77,6 +76,7 @@ def main():
     from experiments.ch14_bgr.b_preprocess import feat_seqs
     from experiments.ch14_bgr.c_models import build_encoder
     feat_seqs = rmap(lambda x: (x,), feat_seqs)
+    # train_subset = train_subset[:100]
 
     # Load data -------------------------------------------------------------------------
 
@@ -110,7 +110,7 @@ def main():
     updates = 'adam'
     loss = 'cross_entropy'
     min_progress = .01
-    epoch_schedule = [20, 20] + [7] * 14
+    epoch_schedule = [20, 20] + [7] * 14  # <<<< TODO
     refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)
 
     # prior training_settings
@@ -149,15 +149,15 @@ def main():
         batch_losses = []
         epoch_losses = []
 
-        def callback(epoch, n_epochs, batch, n_batches, loss):
-            batch_losses.append(loss)
-            print("\rbatch {:>5d}/{:<5d} loss : {:2.4f}".format(
-                batch + 1, n_batches, loss), end='', flush=True)
+        def callback(epoch, n_epochs, batch, n_batches, batch_loss):
+            batch_losses.append(batch_loss)
+            print("\rbatch {:>5d}/{:<5d} batch_loss : {:2.4f}".format(
+                batch + 1, n_batches, batch_loss), end='', flush=True)
 
             if batch + 1 == n_batches:
                 epoch_loss = np.mean(batch_losses[-n_batches // 10:])
                 epoch_losses.append(epoch_loss)
-                print("\repoch {:>5d}/{:<5d} loss : {:2.4f}".format(
+                print("\repoch {:>5d}/{:<5d} batch_loss : {:2.4f}".format(
                     epoch + 1, n_epochs, epoch_loss))
 
         recognizer.fit_posterior(feats_seqs_train, state_assignment,

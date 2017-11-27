@@ -11,22 +11,22 @@ from lproc import rmap, subset
 
 from datasets.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
-from sltools.nn_utils import compute_scores, seq_hinge_loss, seq_ce_loss
+from sltools.nn_utils import compute_scores, seq_hinge_loss  # , seq_ce_loss
 
-# from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-#     train_subset, val_subset
-# from experiments.ch14_skel.b_preprocess import feat_seqs
-# from experiments.ch14_skel.c_models import build_lstm
+from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
+    train_subset, val_subset
+from experiments.ch14_skel.b_preprocess import feat_seqs
+from experiments.ch14_skel.c_models import build_lstm
 
 # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
 #     train_subset, val_subset
 # from experiments.ch14_bgr.b_preprocess import feat_seqs
 # from experiments.ch14_bgr.c_models import build_lstm
 
-from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
-    train_subset, val_subset
-from experiments.ch14_fusion.b_preprocess import feat_seqs
-from experiments.ch14_fusion.c_models import build_lstm
+# from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
+#     train_subset, val_subset
+# from experiments.ch14_fusion.b_preprocess import feat_seqs
+# from experiments.ch14_fusion.c_models import build_lstm
 
 
 def main():
@@ -51,11 +51,11 @@ def main():
     max_time = 128
     batch_size = 16
     nlabels = 21
-    # layers = build_lstm(feats_shape=feat_seqs_train[0][0].shape,
-    #                     batch_size=batch_size, max_time=max_time)
-    layers = build_lstm(skel_feats_shape=feat_seqs_train[0][0][0].shape,
-                        bgr_feats_shape=feat_seqs_train[0][1][0].shape,
+    layers = build_lstm(feats_shape=feat_seqs_train[0][0].shape,
                         batch_size=batch_size, max_time=max_time)
+    # layers = build_lstm(skel_feats_shape=feat_seqs_train[0][0][0].shape,
+    #                     bgr_feats_shape=feat_seqs_train[0][1][0].shape,
+    #                     batch_size=batch_size, max_time=max_time)
     warmup = layers.pop('warmup')
     predict_fn = build_predict_fn(layers, batch_size, max_time, nlabels, warmup)
 
@@ -63,8 +63,8 @@ def main():
 
     weights = np.unique(np.concatenate(y), return_counts=True)[1] ** -0.7
     weights *= 21 / weights.sum()
-    # loss_fn = partial(seq_hinge_loss, weights=weights)
-    loss_fn = partial(seq_ce_loss, weights=weights)
+    loss_fn = partial(seq_hinge_loss, weights=weights)
+    # loss_fn = partial(seq_ce_loss, weights=weights)
     updates_fn = lasagne.updates.adam
     report = shelve.open(os.path.join(tmpdir, "rnn_report"),
                          protocol=pkl.HIGHEST_PROTOCOL)

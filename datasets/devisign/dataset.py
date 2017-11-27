@@ -6,7 +6,7 @@ from .recording import Recording
 
 
 class DEVISIGNDataset:
-    class JoinType(enum.IntEnum):
+    class JointType(enum.IntEnum):
         AnkleLeft = 14,
         AnkleRight = 18,
         ElbowLeft = 5,
@@ -80,9 +80,9 @@ class DEVISIGNDataset:
         return self.rec_info[recording]['duration']
 
     def subject(self, recording):
-        raise NotImplementedError
+        return self.rec_info[recording]['signer']
 
-    def labels(self, recording):
+    def label(self, recording):
         return self.rec_info[recording]['label']
 
     def bgr_frames(self, recording):

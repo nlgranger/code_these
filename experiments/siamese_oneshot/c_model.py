@@ -8,7 +8,8 @@ from sltools.tconv import TemporalConv
 def pairwise_metric(x1, x2):
     # return (x1 / (x1.norm(2, axis=1, keepdims=True) + 0.0001)
     #         - x2 / (x2.norm(2, axis=1, keepdims=True) + 0.0001)).norm(2, axis=1)
-    return (x1 - x2).norm(2, axis=1)
+    # return (x1 - x2).norm(2, axis=1)
+    return T.dot(x1, x2)
 
 
 def build_encoder(l_in, params=None, freeze=False):
@@ -112,9 +113,9 @@ class MaskedMean(MergeLayer):
         self.axis = axis
 
     def get_output_for(self, inputs, **kwargs):
-        input, mask = inputs
+        feats, mask = inputs
         mask = T.cast(mask, 'floatX')
-        return T.sum(input * mask, axis=self.axis) / mask.sum(axis=self.axis)[:, None]
+        return T.sum(feats * mask, axis=self.axis) / mask.sum(axis=self.axis)[:, None]
 
     def get_output_shape_for(self, input_shapes):
         if self.axis is None:
@@ -160,12 +161,13 @@ def build_model(feat_shape, batch_size, max_time):
         shape=(batch_size, max_time) + feat_shape, name="l_in_right")
     l_1 = SiameseInputLayer([l_in_left, l_in_right])
 
-    encoder = build_encoder(l_1, params=pretrained_skel_params(feat_shape))
+    params = pretrained_skel_params(feat_shape)
+    # params = None
+    encoder = build_encoder(l_1, params=params)
     l_2 = encoder['l_out']
     l_3 = lasagne.layers.DenseLayer(
-        l_2, num_units=96, nonlinearity=lasagne.nonlinearities.leaky_rectify,
+        l_2, num_units=256, nonlinearity=lasagne.nonlinearities.sigmoid,
         num_leading_axes=2)
-    l_3 = lasagne.layers.batch_norm(l_3)
     warmup = encoder['warmup']
 
     l_durations_left = lasagne.layers.InputLayer(
@@ -178,16 +180,10 @@ def build_model(feat_shape, batch_size, max_time):
     # l_4 = MaskedMean([l_3, l_mask])
     l_lstm1 = lasagne.layers.GRULayer(
         l_3, num_units=172, mask_input=l_mask,
-        grad_clipping=1., learn_init=True)
-    l_lstm1 = masked_mean(l_lstm1,
-                          lasagne.layers.dimshuffle(l_mask, (0, 1, 'x')),
-                          axis=1)
+        grad_clipping=1., learn_init=True, only_return_final=True)
     l_lstm2 = lasagne.layers.GRULayer(
         l_3, num_units=172, mask_input=l_mask,
-        backwards=True, grad_clipping=1., learn_init=True)
-    l_lstm2 = masked_mean(l_lstm2,
-                          lasagne.layers.dimshuffle(l_mask, (0, 1, 'x')),
-                          axis=1)
+        backwards=True, grad_clipping=1., learn_init=True, only_return_final=True)
 
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=1)
 

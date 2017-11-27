@@ -71,12 +71,16 @@ def main():
     # from experiments.ch14_skel.c_models import build_encoder
     # feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
-    from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
+    # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
+    #     train_subset, val_subset
+    # from experiments.ch14_bgr.b_preprocess import feat_seqs
+    # from experiments.ch14_bgr.c_models import build_encoder
+    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
+
+    from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
         train_subset, val_subset
-    from experiments.ch14_bgr.b_preprocess import feat_seqs
-    from experiments.ch14_bgr.c_models import build_encoder
-    feat_seqs = rmap(lambda x: (x,), feat_seqs)
-    # train_subset = train_subset[:100]
+    from experiments.ch14_fusion.b_preprocess import feat_seqs
+    from experiments.ch14_fusion.c_models import build_encoder
 
     # Load data -------------------------------------------------------------------------
 
@@ -207,8 +211,6 @@ def main():
                           'batch_losses': batch_losses,
                           'epoch_losses': epoch_losses}
         report.sync()
-        batch_losses.clear()
-        epoch_losses.clear()
 
         # Update training settings
         n_steps = len(batch_losses)
@@ -217,6 +219,9 @@ def main():
         if b * n_steps > - min_progress:
             l_rate *= .3
             min_progress *= .3
+
+        batch_losses.clear()
+        epoch_losses.clear()
 
         # Printout
         print("HMM Jaccard index: {:0.3f}".format(train_report['jaccard']))

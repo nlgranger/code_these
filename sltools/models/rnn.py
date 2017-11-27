@@ -77,11 +77,8 @@ class build_train_fn:
         n_batches = len(chunks) // self.batch_size
         for epoch in range(n_epochs):
             shuffle(chunks)
-            batch_iter = chunk_load(sources, buffers, self.batch_size)
+            batch_iter = chunk_load(sources, buffers, self.batch_size, drop_last=True)
             for i, minibatch in enumerate(batch_iter):
-                if len(minibatch[0]) < self.batch_size:
-                    continue
-
                 last_loss = self.train_batch_fn(*minibatch, l_rate)
                 batch_callback(i, n_batches, float(last_loss))
 

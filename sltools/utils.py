@@ -1,5 +1,4 @@
 from typing import Sequence
-import multiprocessing
 import numpy as np
 import cv2
 
@@ -97,78 +96,10 @@ def seq2gloss(seq):
     return glosses
 
 
-# Multiprocessing helpers ---------------------------------------------------------------
-# http://stackoverflow.com/a/16071616/5786475
-
-def _parmap_worker(f, q_in, q_out):
-    # Worker for `parmap`
-    while True:
-        i, x = q_in.get()
-        if i is None:  # stop on sentinel value
-            return
-        q_out.put((i, f(*x)))
-
-
-def parmap(func, *iterables, nprocs=0):
-    """A multiprocessing-based equivalent of python's `map` which uses multiple threads
-    to consume the iterables.
-
-    :param func:
-        A callable (lambdas or instance methods accepted).
-    :param iterables:
-        one or several iterables over arguments. If several iterables are given, _func_
-        must take as many arguments as iterables, and arguments are extracted from all
-        iterators in parallel.
-    :param nprocs:
-        Number of workers to use. 0 or negative values indicate the number of CPU
-        cores to spare. Default: 0 (one worker by cpu core)
-    """
-
-    if nprocs <= 0:
-        nprocs += multiprocessing.cpu_count()
-
-    q_in = multiprocessing.Queue(2 * nprocs)
-    q_out = multiprocessing.Queue(2 * nprocs)
-    unordered_results = {}  # temporary storage for results
-
-    proc = [multiprocessing.Process(target=_parmap_worker, 
-                                    args=(func, q_in, q_out))
-            for _ in range(nprocs)]
-    for p in proc:
-        p.start()
-
-    iterables = zip(*iterables)
-    n_buffered = 0
-    n_done = 0
-
-    for i, x in enumerate(iterables):
-        if n_buffered >= 2 * nprocs:  # fetch some results after a while
-            idx, v = q_out.get()
-            unordered_results[idx] = v
-            n_buffered -= 1
-
-            # return them in correct order
-            while n_done in unordered_results.keys():
-                yield unordered_results.pop(n_done)
-                n_done += 1
-
-        # inject arguments
-        q_in.put((i, x))
-        n_buffered += 1
-
-    while n_buffered > 0:  # extract remaining results
-        idx, v = q_out.get()
-        unordered_results[idx] = v
-        n_buffered -= 1
-
-        while n_done in unordered_results.keys():
-            yield unordered_results.pop(n_done)
-            n_done += 1
-
-    for _ in range(nprocs):  # inject sentinel values to stop threads
-        q_in.put((None, None))
-    for p in proc:  # wait for threads to terminate
-        p.join()
+def pad_seq(seq, max_time):
+    return np.concatenate((seq[:max_time],
+                           np.zeros((max(0, max_time - len(seq)),) + seq.shape[1:],
+                                    dtype=seq.dtype)))
 
 
 # Image ---------------------------------------------------------------------------------

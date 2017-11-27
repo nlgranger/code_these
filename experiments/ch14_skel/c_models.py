@@ -88,6 +88,7 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
         'l_in': l_in,
         'l_duration': l_duration,
         'l_mask': l_mask,
+        'l_cc': l_cc1,
         'l_linout': l_linout,
         # 'l_out': l_lstm,
         'warmup': warmup,

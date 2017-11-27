@@ -1,15 +1,22 @@
+import os
+import shelve
+import pickle as pkl
+import numpy as np
 import lasagne
 import theano.tensor as T
 from lasagne.layers import MergeLayer
 from sltools.nn_utils import DurationMaskLayer
 from sltools.tconv import TemporalConv
+from experiments.ch14_skel.a_data import tmpdir as skel_tmpdir
+from experiments.ch14_skel.c_models import build_lstm as build_skel_lstm
 
 
 def pairwise_metric(x1, x2):
-    # return (x1 / (x1.norm(2, axis=1, keepdims=True) + 0.0001)
-    #         - x2 / (x2.norm(2, axis=1, keepdims=True) + 0.0001)).norm(2, axis=1)
+    return 1 - T.sum(x1 * x2, axis=1) \
+           / (x1.norm(2, axis=1) + 0.0001) \
+           / (x2.norm(2, axis=1) + 0.0001)
     # return (x1 - x2).norm(2, axis=1)
-    return T.dot(x1, x2)
+    # return T.sum(x1 * x2, axis=1)
 
 
 def build_encoder(l_in, params=None, freeze=False):
@@ -129,46 +136,33 @@ def masked_mean(incoming, mask, axis=None):
 
 
 def pretrained_skel_params(input_shape):
-    import os
-    import shelve
-    import pickle as pkl
-    from experiments.ch14_skel.a_data import tmpdir as skel_tmpdir
-    from experiments.ch14_skel.c_models import build_lstm as build_skel_lstm
-
     report = shelve.open(os.path.join(skel_tmpdir, 'rnn_report'))
     best_epoch = sorted([(float(report[str(e)]['val_scores']['jaccard']), int(e))
                          for e in report.keys() if
                          'val_scores' in report[str(e)].keys()])[-1][1]
+    print("reloading parameters from RNN at it {}".format(best_epoch))
     model = build_skel_lstm(input_shape, batch_size=1, max_time=1)
     all_layers = lasagne.layers.get_all_layers(model['l_linout'])
 
     param_dump_file = os.path.join(skel_tmpdir, "rnn_it{:04d}.pkl".format(best_epoch))
     with open(param_dump_file, 'rb') as f:
         params = pkl.load(f)
-
         lasagne.layers.set_all_param_values(all_layers, params)
 
     i1 = all_layers.index(model['l_in'])
-    i2 = all_layers.index(model['l_feats'])
-    encoder_layers = all_layers[i1:i2]
-    return lasagne.layers.get_all_param_values(encoder_layers)
+    i2 = all_layers.index(model['l_cc'])
+    return lasagne.layers.get_all_param_values(all_layers[i1:i2])
 
 
 def build_model(feat_shape, batch_size, max_time):
+    n_lstm_units = 172
+
+    # Input layers
     l_in_left = lasagne.layers.InputLayer(
         shape=(batch_size, max_time) + feat_shape, name="l_in_left")
     l_in_right = lasagne.layers.InputLayer(
         shape=(batch_size, max_time) + feat_shape, name="l_in_right")
-    l_1 = SiameseInputLayer([l_in_left, l_in_right])
-
-    params = pretrained_skel_params(feat_shape)
-    # params = None
-    encoder = build_encoder(l_1, params=params)
-    l_2 = encoder['l_out']
-    l_3 = lasagne.layers.DenseLayer(
-        l_2, num_units=256, nonlinearity=lasagne.nonlinearities.sigmoid,
-        num_leading_axes=2)
-    warmup = encoder['warmup']
+    l_in = SiameseInputLayer([l_in_left, l_in_right])
 
     l_durations_left = lasagne.layers.InputLayer(
         (batch_size,), input_var=T.ivector(), name="l_duration_left")
@@ -177,18 +171,38 @@ def build_model(feat_shape, batch_size, max_time):
     l_duration = SiameseInputLayer([l_durations_left, l_duration_right])
     l_mask = DurationMaskLayer(l_duration, max_time, name="l_mask")
 
-    # l_4 = MaskedMean([l_3, l_mask])
+    # feature encoding/representation learning
+    encoder_data = build_encoder(l_in)
+    l_feats = encoder_data['l_out']
+    warmup = encoder_data['warmup']
+
+    # LSTM layers
+    l_d1 = lasagne.layers.dropout(l_feats, p=0.3)
     l_lstm1 = lasagne.layers.GRULayer(
-        l_3, num_units=172, mask_input=l_mask,
+        l_d1, num_units=n_lstm_units, mask_input=l_mask,
         grad_clipping=1., learn_init=True, only_return_final=True)
     l_lstm2 = lasagne.layers.GRULayer(
-        l_3, num_units=172, mask_input=l_mask,
+        l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True, only_return_final=True)
-
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=1)
+    l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
+
+    l_f4 = lasagne.layers.DenseLayer(
+        l_cc1, num_units=256,
+        nonlinearity=lasagne.nonlinearities.sigmoid)
+    l_f4 = lasagne.layers.ScaleLayer(
+        l_f4,
+        scales=np.full((256,), 1/np.sqrt(256), dtype=np.float32))
+
+    print("injecting pretrained parameters")
+    params = pretrained_skel_params(feat_shape)
+    all_layers = lasagne.layers.get_all_layers(l_cc1)
+    i1 = all_layers.index(l_in)
+    i2 = all_layers.index(l_cc1)
+    lasagne.layers.set_all_param_values(all_layers[i1:i2], params)
 
     l_linout = lasagne.layers.ExpressionLayer(
-        l_cc1, lambda X: pairwise_metric(X[0::2], X[1::2]),
+        l_f4, lambda X: pairwise_metric(X[0::2], X[1::2]),
         output_shape=(batch_size,))
 
     return {
@@ -196,5 +210,5 @@ def build_model(feat_shape, batch_size, max_time):
         'l_duration': [l_durations_left, l_duration_right],
         'l_linout': l_linout,
         'warmup': warmup,
-        'l_feats': encoder['l_out']
+        'l_feats': encoder_data['l_out']
     }

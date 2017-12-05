@@ -51,13 +51,15 @@ def main():
     max_time = 128
     batch_size = 16
     nlabels = 21
-    layers = build_lstm(feats_shape=feat_seqs_train[0][0].shape,
-                        batch_size=batch_size, max_time=max_time)
-    # layers = build_lstm(skel_feats_shape=feat_seqs_train[0][0][0].shape,
-    #                     bgr_feats_shape=feat_seqs_train[0][1][0].shape,
-    #                     batch_size=batch_size, max_time=max_time)
-    warmup = layers.pop('warmup')
-    predict_fn = build_predict_fn(layers, batch_size, max_time, nlabels, warmup)
+
+    layers_data = build_lstm(feats_shape=feat_seqs_train[0][0].shape,
+                             batch_size=batch_size, max_time=max_time)
+    # layers_data = build_lstm(skel_feats_shape=feat_seqs_train[0][0][0].shape,
+    #                          bgr_feats_shape=feat_seqs_train[0][1][0].shape,
+    #                          batch_size=batch_size, max_time=max_time)
+    warmup = layers_data.pop('warmup')
+
+    predict_fn = build_predict_fn(layers_data, batch_size, max_time, nlabels, warmup)
 
     # Training --------------------------------------------------------------------------
 
@@ -73,7 +75,7 @@ def main():
     min_progress = 2e-3  # if improvement is below, decrease learning rate
     l_rate = .001
     train_fn = build_train_fn(
-        layers, batch_size, max_time, warmup,
+        layers_data, batch_size, max_time, warmup,
         loss_fn=loss_fn, updates_fn=updates_fn)
 
     batch_losses = []
@@ -97,7 +99,7 @@ def main():
             min_progress *= epoch_report['l_rate'] / l_rate
             l_rate = epoch_report['l_rate']
             with open(os.path.join(tmpdir, "rnn_it{:04d}.pkl".format(e)), 'rb') as f:
-                all_layers = lasagne.layers.get_all_layers(layers['l_linout'])
+                all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
                 params = pkl.load(f)
                 lasagne.layers.set_all_param_values(all_layers, params)
             continue
@@ -134,7 +136,7 @@ def main():
             print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
 
             with open(os.path.join(tmpdir, "rnn_it{:04d}.pkl".format(e)), 'wb') as f:
-                all_layers = lasagne.layers.get_all_layers(layers['l_linout'])
+                all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
                 params = lasagne.layers.get_all_param_values(all_layers)
                 pkl.dump(params, f)
 

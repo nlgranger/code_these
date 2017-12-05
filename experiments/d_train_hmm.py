@@ -65,11 +65,11 @@ def filter_chunks(X, y, chunks, idle_state):
 # Training script -----------------------------------------------------------------------
 
 def main():
-    # from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
-    # from experiments.ch14_skel.b_preprocess import feat_seqs
-    # from experiments.ch14_skel.c_models import build_encoder
-    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
+    from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
+        train_subset, val_subset
+    from experiments.ch14_skel.b_preprocess import feat_seqs
+    from experiments.ch14_skel.c_models import build_encoder
+    feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
     #     train_subset, val_subset
@@ -77,10 +77,10 @@ def main():
     # from experiments.ch14_bgr.c_models import build_encoder
     # feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
-    from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
-        train_subset, val_subset
-    from experiments.ch14_fusion.b_preprocess import feat_seqs
-    from experiments.ch14_fusion.c_models import build_encoder
+    # from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
+    #     train_subset, val_subset
+    # from experiments.ch14_fusion.b_preprocess import feat_seqs
+    # from experiments.ch14_fusion.c_models import build_encoder
 
     # Load data -------------------------------------------------------------------------
 
@@ -219,9 +219,6 @@ def main():
         if b * n_steps > - min_progress:
             l_rate *= .3
             min_progress *= .3
-
-        batch_losses.clear()
-        epoch_losses.clear()
 
         # Printout
         print("HMM Jaccard index: {:0.3f}".format(train_report['jaccard']))

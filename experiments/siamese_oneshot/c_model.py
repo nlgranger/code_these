@@ -137,9 +137,9 @@ def masked_mean(incoming, mask, axis=None):
 
 def pretrained_skel_params(input_shape):
     report = shelve.open(os.path.join(skel_tmpdir, 'rnn_report'))
-    best_epoch = sorted([(float(report[str(e)]['val_scores']['jaccard']), int(e))
-                         for e in report.keys() if
-                         'val_scores' in report[str(e)].keys()])[-1][1]
+    best_epoch = np.argmax([float(report[str(e)]['val_scores']['jaccard'])
+                            for e in report.keys()
+                            if 'val_scores' in report[str(e)].keys()])
     print("reloading parameters from RNN at it {}".format(best_epoch))
     model = build_skel_lstm(input_shape, batch_size=1, max_time=1)
     all_layers = lasagne.layers.get_all_layers(model['l_linout'])
@@ -151,7 +151,7 @@ def pretrained_skel_params(input_shape):
 
     i1 = all_layers.index(model['l_in'])
     i2 = all_layers.index(model['l_cc'])
-    return lasagne.layers.get_all_param_values(all_layers[i1:i2])
+    return lasagne.layers.get_all_param_values(all_layers[i1+1:i2])
 
 
 def build_model(feat_shape, batch_size, max_time):
@@ -174,7 +174,7 @@ def build_model(feat_shape, batch_size, max_time):
     # feature encoding/representation learning
     encoder_data = build_encoder(l_in)
     l_feats = encoder_data['l_out']
-    # l_feats = lasagne.layers.dropout(l_feats, p=0.3)
+    l_feats = lasagne.layers.dropout(l_feats, p=0.3)
     warmup = encoder_data['warmup']
 
     # LSTM layers
@@ -185,7 +185,7 @@ def build_model(feat_shape, batch_size, max_time):
         l_feats, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True, only_return_final=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=1)
-    # l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
+    l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
 
     l_f4 = lasagne.layers.DenseLayer(
         l_cc1, num_units=256,
@@ -194,12 +194,12 @@ def build_model(feat_shape, batch_size, max_time):
         l_f4,
         scales=np.full((256,), 1/np.sqrt(256), dtype=np.float32))
 
-    # print("injecting pretrained parameters")
-    # params = pretrained_skel_params(feat_shape)
-    # all_layers = lasagne.layers.get_all_layers(l_cc1)
-    # i1 = all_layers.index(l_in)
-    # i2 = all_layers.index(l_cc1)
-    # lasagne.layers.set_all_param_values(all_layers[i1:i2], params)
+    # Transfer
+    params = pretrained_skel_params(feat_shape)
+    all_layers = lasagne.layers.get_all_layers(l_cc1)
+    i1 = all_layers.index(l_in)
+    i2 = all_layers.index(l_cc1)
+    lasagne.layers.set_all_param_values(all_layers[i1+1:i2], params)
 
     l_linout = lasagne.layers.ExpressionLayer(
         l_f4, lambda X: pairwise_metric(X[0::2], X[1::2]),

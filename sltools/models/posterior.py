@@ -64,7 +64,7 @@ class PosteriorModel:
             raise ValueError("The network should have an output shape like"
                              " (batch, duration, featsize).")
         if self.l_feats.output_shape[2] != self.nstates:
-            logging.warning("Adding one dense layer to match the output dimension")
+            logging.info("Adding one dense layer to match the output dimension")
             self.l_raw = lasagne.layers.DenseLayer(
                 self.l_feats, self.nstates, num_leading_axes=2, nonlinearity=None)
         else:

@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from theano import tensor as T
 import lasagne
@@ -32,7 +33,12 @@ def onehot(y, labels):
 def jaccard(y_true, y_pred):
     intersection = (y_pred * y_true).sum(axis=0)
     union = (y_pred | y_true).sum(axis=0)
-    return np.mean(intersection[union > 0] / union[union > 0])
+
+    if not any(union):
+        logging.info("empty sequence detected as empty")
+        return 1
+    else:
+        return np.mean(intersection[union > 0] / union[union > 0])
 
 
 def seq_hinge_loss(linout, targets, masks, weights=None, delta=1.):

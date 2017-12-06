@@ -71,7 +71,7 @@ def build_encoder(l_in_skel, l_in_zmaps,
 
 @SerializableFunc
 def build_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6):
-    n_lstm_units = 128
+    n_lstm_units = 172
 
     l_in_skel = lasagne.layers.InputLayer(
         shape=(batch_size, max_time) + skel_feats_shape)

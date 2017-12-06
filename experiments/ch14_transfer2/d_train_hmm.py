@@ -13,9 +13,6 @@ from sltools.models import HMMRecognizer, PosteriorModel
 from sltools.nn_utils import compute_scores
 
 
-np.seterr(all='raise', under='warn')
-
-
 # Helper --------------------------------------------------------------------------------
 
 def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):

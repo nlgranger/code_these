@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-import pickle as pkl
+from copy import deepcopy
 import shelve
 
 import numpy as np
@@ -14,14 +14,15 @@ from sltools.nn_utils import compute_scores
 
 # Helper --------------------------------------------------------------------------------
 
-def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
+def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, vocabulary,
+                previous_model):
     report = {}
 
     # Complete model
     preds = model.predict(feats_seqs)
     labels = [gloss2seq(g_, d_, 0) for g_, d_ in zip(gloss_seqs, seqs_durations)]
     report['jaccard'], report['framewise'], report['confusion'] = \
-        compute_scores(preds, labels)
+        compute_scores(preds, labels, vocabulary)
 
     # State-wise
     preds = [np.argmax(model.posterior.predict_proba(*x), axis=1)
@@ -34,7 +35,7 @@ def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
         state_labels = rmap(lambda s: previous_model.state2idx[s], states)
 
     report['statewise_jaccard'], report['statewise_framewise'], \
-        report['statewise_confusion'] = compute_scores(preds, state_labels)
+        report['statewise_confusion'] = compute_scores(preds, state_labels, vocabulary)
 
     # Posterior model
     idx2labels = np.concatenate(
@@ -43,7 +44,7 @@ def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
     preds = [idx2labels[p] for p in preds]
 
     report['posterior_jaccard'], report['posterior_framewise'], \
-        report['posterior_confusion'] = compute_scores(preds, labels)
+        report['posterior_confusion'] = compute_scores(preds, labels, vocabulary)
 
     return report
 
@@ -66,19 +67,19 @@ def filter_chunks(X, y, chunks, idle_state):
 
 def main():
     from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-        train_subset, val_subset
+        train_subset, val_subset, vocabulary
     from experiments.ch14_skel.b_preprocess import feat_seqs
     from experiments.ch14_skel.c_models import build_encoder
     feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
+    #     train_subset, val_subset, vocabulary
     # from experiments.ch14_bgr.b_preprocess import feat_seqs
     # from experiments.ch14_bgr.c_models import build_encoder
     # feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
+    #     train_subset, val_subset, vocabulary
     # from experiments.ch14_fusion.b_preprocess import feat_seqs
     # from experiments.ch14_fusion.c_models import build_encoder
 
@@ -105,14 +106,14 @@ def main():
 
     # Run training iterations -----------------------------------------------------------
 
-    report = shelve.open(os.path.join(tmpdir, "hmm_report"),
-                         protocol=pkl.HIGHEST_PROTOCOL)
+    report = shelve.open(os.path.join(tmpdir, "hmm_report"))
     resume_at = len(report) - 1
 
     # Posterior training settings
     l_rate = .001
     updates = 'adam'
     loss = 'cross_entropy'
+    weight_smoothing = .7
     min_progress = .01
     epoch_schedule = [20, 20] + [7] * 14  # <<<< TODO
     refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)
@@ -147,7 +148,7 @@ def main():
                                                    linear=(i == 0))
 
         counts = np.unique(np.concatenate(state_assignment), return_counts=True)[1]
-        weights = np.power((counts + 100) / counts.max(), -0.7)
+        weights = np.power((counts + 100) / counts.max(), - weight_smoothing)
         weights = weights / np.sum(weights) * n_states
 
         batch_losses = []
@@ -187,14 +188,14 @@ def main():
         train_report = epoch_perfs(
             recognizer,
             feats_seqs_train, gloss_seqs_train, seqs_durations_train,
-            previous_recognizer)
+            vocabulary, previous_recognizer)
         val_report = epoch_perfs(
             recognizer,
             feats_seqs_val, gloss_seqs_val, seqs_durations_val,
-            previous_recognizer)
+            vocabulary, previous_recognizer)
         report[str(i)] = {'train_report': train_report,
                           'val_report': val_report,
-                          'model': pkl.loads(pkl.dumps(recognizer)),
+                          'model': deepcopy(recognizer),
                           'settings': {
                               'chains_lengths': chains_lengths,
                               'n_states': n_states,
@@ -203,6 +204,7 @@ def main():
                               'l_rate': .001,
                               'updates': updates,
                               'loss': loss,
+                              'weight_smoothing': weight_smoothing,
                               'min_progress': min_progress,
                               'epoch_schedule': epoch_schedule,
                               'refit_schedule': refit_schedule,

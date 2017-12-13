@@ -10,7 +10,7 @@ from experiments.ch14_skel.c_models import build_lstm
 
 def params_from_rnn(*input_shape):
     max_time = 128
-    batch_size = 32
+    batch_size = 16
 
     report = shelve.open(os.path.join(rnn_tmpdir, 'rnn_report'))
     best_epoch = sorted([(float(report[str(e)]['val_scores']['jaccard']), int(e))

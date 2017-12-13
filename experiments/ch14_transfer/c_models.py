@@ -74,13 +74,23 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
         l_feats, n_states, num_leading_axes=2,
         nonlinearity=lambda x: T.exp(log_softmax(x)))
 
-    # transfer
+    # transfer (posteriors)
     src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_out)
     src_layers = src_layers[src_layers.index(hmm_recognizer.posterior.l_in[-1]) + 1:]
     src_params = lasagne.layers.get_all_param_values(src_layers)
     tgt_layers = lasagne.layers.get_all_layers(l_posteriors)
     tgt_layers = tgt_layers[tgt_layers.index(l_in) + 1:]
     lasagne.layers.set_all_param_values(tgt_layers, src_params)
+
+    # transfer (features)
+    # src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_feats)
+    # src_layers = src_layers[src_layers.index(hmm_recognizer.posterior.l_in[-1]) + 1:]
+    # src_params = lasagne.layers.get_all_param_values(src_layers)
+    # tgt_layers = lasagne.layers.get_all_layers(l_feats)
+    # tgt_layers = tgt_layers[tgt_layers.index(l_in) + 1:]
+    # lasagne.layers.set_all_param_values(tgt_layers, src_params)
+
+    # freeze
     for l in tgt_layers:
         for p in l.params:
             l.params[p].discard('trainable')

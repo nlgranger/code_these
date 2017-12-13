@@ -13,20 +13,25 @@ from datasets.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
 from sltools.nn_utils import compute_scores, seq_hinge_loss  # , seq_ce_loss
 
-from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-    train_subset, val_subset
-from experiments.ch14_skel.b_preprocess import feat_seqs
-from experiments.ch14_skel.c_models import build_lstm
+# from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
+#     train_subset, val_subset, vocabulary
+# from experiments.ch14_skel.b_preprocess import feat_seqs
+# from experiments.ch14_skel.c_models import build_lstm
 
 # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
-#     train_subset, val_subset
+#     train_subset, val_subset, vocabulary
 # from experiments.ch14_bgr.b_preprocess import feat_seqs
 # from experiments.ch14_bgr.c_models import build_lstm
 
 # from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
-#     train_subset, val_subset
+#     train_subset, val_subset, vocabulary
 # from experiments.ch14_fusion.b_preprocess import feat_seqs
 # from experiments.ch14_fusion.c_models import build_lstm
+
+from experiments.ch14_skel_online.a_data import tmpdir, gloss_seqs, durations, \
+    train_subset, val_subset, vocabulary
+from experiments.ch14_skel_online.b_preprocess import feat_seqs
+from experiments.ch14_skel_online.c_models import build_lstm
 
 
 def main():
@@ -57,7 +62,7 @@ def main():
     # layers_data = build_lstm(skel_feats_shape=feat_seqs_train[0][0][0].shape,
     #                          bgr_feats_shape=feat_seqs_train[0][1][0].shape,
     #                          batch_size=batch_size, max_time=max_time)
-    warmup = layers_data.pop('warmup')
+    warmup = layers_data['warmup']
 
     predict_fn = build_predict_fn(layers_data, batch_size, max_time, nlabels, warmup)
 
@@ -125,9 +130,9 @@ def main():
 
         if (e + 1) % save_every == 0:
             predictions = [np.argmax(p, axis=1) for p in predict_fn(X)]
-            j, p, c = compute_scores(predictions, y)
+            j, p, c = compute_scores(predictions, y, vocabulary)
             predictions = [np.argmax(p, axis=1) for p in predict_fn(Xv)]
-            jv, pv, cv = compute_scores(predictions, yv)
+            jv, pv, cv = compute_scores(predictions, yv, vocabulary)
             epoch_report['train_scores'] = \
                 {'jaccard': j, 'framewise': p, 'confusion': c}
             epoch_report['val_scores'] = \
@@ -135,10 +140,9 @@ def main():
 
             print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
 
-            with open(os.path.join(tmpdir, "rnn_it{:04d}.pkl".format(e)), 'wb') as f:
-                all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
-                params = lasagne.layers.get_all_param_values(all_layers)
-                pkl.dump(params, f)
+            all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
+            params = lasagne.layers.get_all_param_values(all_layers)
+            epoch_report['params'] = params
 
             # Update learning rate ------------------------------------------------------
 

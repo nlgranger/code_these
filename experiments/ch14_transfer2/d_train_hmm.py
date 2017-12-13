@@ -8,45 +8,8 @@ from functools import partial
 import numpy as np
 from lproc import rmap, subset, SerializableFunc
 
-from datasets.utils import gloss2seq
 from sltools.models import HMMRecognizer, PosteriorModel
-from sltools.nn_utils import compute_scores
-
-
-# Helper --------------------------------------------------------------------------------
-
-def epoch_perfs(model, feats_seqs, gloss_seqs, seqs_durations, previous_model):
-    report = {}
-
-    # Complete model
-    preds = model.predict(feats_seqs)
-    labels = [gloss2seq(g_, d_, 0) for g_, d_ in zip(gloss_seqs, seqs_durations)]
-    report['jaccard'], report['framewise'], report['confusion'] = \
-        compute_scores(preds, labels)
-
-    # State-wise
-    preds = [np.argmax(model.posterior.predict_proba(*x), axis=1)
-             for x in feats_seqs]
-    if previous_model is None:  # fresh start -> hard label assignment
-        state_labels = rmap(model._linearstateassignment, gloss_seqs, seqs_durations)
-    else:
-        states = rmap(lambda f, g: previous_model._supervized_state_alignment(f, g),
-                      feats_seqs, gloss_seqs)
-        state_labels = rmap(lambda s: previous_model.state2idx[s], states)
-
-    report['statewise_jaccard'], report['statewise_framewise'], \
-        report['statewise_confusion'] = compute_scores(preds, state_labels)
-
-    # Posterior model
-    idx2labels = np.concatenate(
-        [np.full((model.chains_lengths[i],), model.labels[i])
-         for i in range(model.nlabels)] + [np.zeros((1,))]).astype(np.int32)
-    preds = [idx2labels[p] for p in preds]
-
-    report['posterior_jaccard'], report['posterior_framewise'], \
-        report['posterior_confusion'] = compute_scores(preds, labels)
-
-    return report
+from experiments.d_train_hmm import epoch_perfs
 
 
 # Parametric settings -------------------------------------------------------------------
@@ -66,25 +29,8 @@ def filter_chunks(X, y, chunks, idle_state):
 # Training script -----------------------------------------------------------------------
 
 def main():
-    # from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
-    # from experiments.ch14_skel.b_preprocess import feat_seqs
-    # from experiments.ch14_skel.c_models import build_encoder
-    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
-
-    # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
-    # from experiments.ch14_bgr.b_preprocess import feat_seqs
-    # from experiments.ch14_bgr.c_models import build_encoder
-    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
-
-    # from experiments.ch14_fusion.a_data import tmpdir, gloss_seqs, durations, \
-    #     train_subset, val_subset
-    # from experiments.ch14_fusion.b_preprocess import feat_seqs
-    # from experiments.ch14_fusion.c_models import build_encoder
-
     from experiments.ch14_transfer2.a_data import tmpdir, gloss_seqs, durations, \
-        train_subset, val_subset
+        train_subset, val_subset, vocabulary
     from experiments.ch14_transfer2.b_preprocess import feat_seqs
     from experiments.ch14_transfer2.c_models import build_encoder, params_from_rnn
     feat_seqs = rmap(lambda x: (x,), feat_seqs)
@@ -155,7 +101,7 @@ def main():
                                                    linear=(i == 0))
 
         counts = np.unique(np.concatenate(state_assignment), return_counts=True)[1]
-        weights = np.power((counts + 100) / counts.max(), -0.2)
+        weights = np.power((counts + 100) / counts.max(), -.2)
         weights = weights / np.sum(weights) * n_states
 
         batch_losses = []
@@ -195,11 +141,11 @@ def main():
         train_report = epoch_perfs(
             recognizer,
             feats_seqs_train, gloss_seqs_train, seqs_durations_train,
-            previous_recognizer)
+            vocabulary, previous_recognizer)
         val_report = epoch_perfs(
             recognizer,
             feats_seqs_val, gloss_seqs_val, seqs_durations_val,
-            previous_recognizer)
+            vocabulary, previous_recognizer)
         report[str(i)] = {'train_report': train_report,
                           'val_report': val_report,
                           'model': deepcopy(recognizer),

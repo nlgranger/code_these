@@ -14,7 +14,7 @@ from sltools.models.rnn import build_predict_fn, build_train_fn
 from sltools.nn_utils import compute_scores, seq_hinge_loss  # , seq_ce_loss
 
 from experiments.ch14_transfer.a_data import tmpdir, gloss_seqs, durations, \
-    train_subset, val_subset
+    train_subset, val_subset, vocabulary
 from experiments.ch14_transfer.b_preprocess import feat_seqs
 from experiments.ch14_transfer.c_models import build_lstm
 
@@ -115,9 +115,9 @@ def main():
 
         if (e + 1) % save_every == 0:
             predictions = [np.argmax(p, axis=1) for p in predict_fn(X)]
-            j, p, c = compute_scores(predictions, y)
+            j, p, c = compute_scores(predictions, y, vocabulary)
             predictions = [np.argmax(p, axis=1) for p in predict_fn(Xv)]
-            jv, pv, cv = compute_scores(predictions, yv)
+            jv, pv, cv = compute_scores(predictions, yv, vocabulary)
             epoch_report['train_scores'] = \
                 {'jaccard': j, 'framewise': p, 'confusion': c}
             epoch_report['val_scores'] = \
@@ -125,10 +125,9 @@ def main():
 
             print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
 
-            with open(os.path.join(tmpdir, "rnn_it{:04d}.pkl".format(e)), 'wb') as f:
-                all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
-                params = lasagne.layers.get_all_param_values(all_layers)
-                pkl.dump(params, f)
+            all_layers = lasagne.layers.get_all_layers(layers_data['l_linout'])
+            params = lasagne.layers.get_all_param_values(all_layers)
+            epoch_report['params'] = params
 
             # Update learning rate ------------------------------------------------------
 

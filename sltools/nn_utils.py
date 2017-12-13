@@ -73,12 +73,12 @@ def seq_ce_loss(linout, targets, masks, weights):
 
 # Useful routines -----------------------------------------------------------------------
 
-def compute_scores(predictions, targets):
+def compute_scores(predictions, targets, vocabulary):
     pred_cat = np.concatenate(predictions)
     labels_cat = np.concatenate(targets)
 
     jaccard_score = np.mean(
-        [jaccard(onehot(l, np.arange(1, 20)), onehot(p, np.arange(1, 20)))
+        [jaccard(onehot(l, vocabulary), onehot(p, vocabulary))
          for l, p in zip(targets, predictions)])
     framewise = np.mean(pred_cat == labels_cat)
     confusion = confusion_matrix(labels_cat, pred_cat).astype(np.double)

@@ -22,6 +22,7 @@ pose2d_seqs = None
 frame_seqs = None
 durations = None
 joints = dataset.JointType
+vocabulary = np.arange(1, 21)
 
 tgt_dist = 4  # desired apparent distance (in meters?) from camera to subject
 important_joints = np.isin(np.arange(dataset.positions(0).shape[1]),

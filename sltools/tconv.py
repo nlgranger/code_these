@@ -95,6 +95,8 @@ class TemporalConv(lasagne.layers.Layer):
             self.W = self.add_param(
                 W, shape=(num_filters, filter_size),
                 name="W")
+        else:
+            raise ValueError("invalid argument for conv_type")
 
         if b is None:
             self.b = None

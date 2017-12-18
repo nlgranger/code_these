@@ -76,7 +76,7 @@ def main():
         print("\rbatch {:>5d}/{:<5d} loss : {:2.4f}".format(
               batch + 1, n_batches, loss), end='', flush=True)
 
-    for e in range(100):
+    for e in range(130):
         # Resume if possible ------------------------------------------------------------
 
         if e < resume_at:

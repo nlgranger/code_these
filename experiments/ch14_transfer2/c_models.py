@@ -4,8 +4,10 @@ import pickle as pkl
 import lasagne
 from lproc import SerializableFunc
 from sltools.tconv import TemporalConv
-from experiments.ch14_skel.a_data import tmpdir as rnn_tmpdir
-from experiments.ch14_skel.c_models import build_lstm
+# from experiments.ch14_skel.a_data import tmpdir as rnn_tmpdir
+# from experiments.ch14_skel.c_models import build_lstm
+from experiments.ch14_shorttc.a_data import tmpdir as rnn_tmpdir
+from experiments.ch14_shorttc.c_models import build_lstm
 
 
 def params_from_rnn(*input_shape):
@@ -21,9 +23,13 @@ def params_from_rnn(*input_shape):
                        batch_size=batch_size, max_time=max_time)
 
     all_layers = lasagne.layers.get_all_layers(model['l_linout'])
-    with open(os.path.join(rnn_tmpdir, "rnn_it{:04d}.pkl".format(best_epoch)), 'rb') as f:
-        params = pkl.load(f)
-        lasagne.layers.set_all_param_values(all_layers, params)
+    if 'params' in report[str(best_epoch)].keys():
+        params = report[str(best_epoch)]['params']
+    else:
+        with open(os.path.join(rnn_tmpdir, "rnn_it{:04d}.pkl".format(best_epoch)), 'rb') as f:
+            params = pkl.load(f)
+
+    lasagne.layers.set_all_param_values(all_layers, params)
 
     return lasagne.layers.get_all_param_values(
         all_layers[all_layers.index(model['l_in']) + 1
@@ -33,7 +39,7 @@ def params_from_rnn(*input_shape):
 @SerializableFunc
 def build_encoder(l_in, params=None, freeze=False):
     dropout = 0.3
-    tconv_sz = 17
+    tconv_sz = 3
     filter_dilation = 1
     warmup = (tconv_sz * filter_dilation) // 2
 

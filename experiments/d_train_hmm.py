@@ -66,11 +66,11 @@ def filter_chunks(X, y, chunks, idle_state):
 # Training script -----------------------------------------------------------------------
 
 def main():
-    from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
-        train_subset, val_subset, vocabulary
-    from experiments.ch14_skel.b_preprocess import feat_seqs
-    from experiments.ch14_skel.c_models import build_encoder
-    feat_seqs = rmap(lambda x: (x,), feat_seqs)
+    # from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
+    #     train_subset, val_subset, vocabulary
+    # from experiments.ch14_skel.b_preprocess import feat_seqs
+    # from experiments.ch14_skel.c_models import build_encoder
+    # feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # from experiments.ch14_bgr.a_data import tmpdir, gloss_seqs, durations, \
     #     train_subset, val_subset, vocabulary
@@ -82,6 +82,12 @@ def main():
     #     train_subset, val_subset, vocabulary
     # from experiments.ch14_fusion.b_preprocess import feat_seqs
     # from experiments.ch14_fusion.c_models import build_encoder
+
+    from experiments.ch14_shorttc.a_data import tmpdir, gloss_seqs, durations, \
+        train_subset, val_subset, vocabulary
+    from experiments.ch14_shorttc.b_preprocess import feat_seqs
+    from experiments.ch14_shorttc.c_models import build_encoder
+    feat_seqs = rmap(lambda x: (x,), feat_seqs)
 
     # Load data -------------------------------------------------------------------------
 

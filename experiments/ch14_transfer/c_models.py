@@ -1,10 +1,11 @@
 import os
 import shelve
+import numpy as np
 import theano.tensor as T
 import lasagne
 from lproc import SerializableFunc
 from sltools.tconv import TemporalConv
-from sltools.nn_utils import DurationMaskLayer, log_softmax
+from sltools.nn_utils import DurationMaskLayer  # , log_softmax
 
 from experiments.ch14_skel.a_data import tmpdir as hmm_tmpdir
 
@@ -58,10 +59,9 @@ def build_encoder(l_in, params=None, freeze=False):
 @SerializableFunc
 def build_lstm(feats_shape, batch_size=6, max_time=64):
     report = shelve.open(os.path.join(hmm_tmpdir, "hmm_report"))
-    phase = 8
-    hmm_recognizer = report[str(phase)]['model']
-
-    n_states = hmm_recognizer.nstates
+    phases = list(report.keys())
+    phase = phases[int(np.argmax([report[p]['val_report']['jaccard'] for p in phases]))]
+    hmm_recognizer = report[phase]['model']
     n_lstm_units = 172
 
     l_in = lasagne.layers.InputLayer(
@@ -70,25 +70,25 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
     l_feats = encoder_data['l_out']
     warmup = encoder_data['warmup']
 
-    l_posteriors = lasagne.layers.DenseLayer(
-        l_feats, n_states, num_leading_axes=2,
-        nonlinearity=lambda x: T.exp(log_softmax(x)))
-
     # transfer (posteriors)
-    src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_out)
-    src_layers = src_layers[src_layers.index(hmm_recognizer.posterior.l_in[-1]) + 1:]
-    src_params = lasagne.layers.get_all_param_values(src_layers)
-    tgt_layers = lasagne.layers.get_all_layers(l_posteriors)
-    tgt_layers = tgt_layers[tgt_layers.index(l_in) + 1:]
-    lasagne.layers.set_all_param_values(tgt_layers, src_params)
-
-    # transfer (features)
-    # src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_feats)
+    # l_feats = lasagne.layers.DenseLayer(
+    #     l_feats, hmm_recognizer.nstates, num_leading_axes=2,
+    #     nonlinearity=lambda x: T.exp(log_softmax(x)))
+    #
+    # src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_out)
     # src_layers = src_layers[src_layers.index(hmm_recognizer.posterior.l_in[-1]) + 1:]
     # src_params = lasagne.layers.get_all_param_values(src_layers)
     # tgt_layers = lasagne.layers.get_all_layers(l_feats)
     # tgt_layers = tgt_layers[tgt_layers.index(l_in) + 1:]
     # lasagne.layers.set_all_param_values(tgt_layers, src_params)
+
+    # transfer (features)
+    src_layers = lasagne.layers.get_all_layers(hmm_recognizer.posterior.l_feats)
+    src_layers = src_layers[src_layers.index(hmm_recognizer.posterior.l_in[-1]) + 1:]
+    src_params = lasagne.layers.get_all_param_values(src_layers)
+    tgt_layers = lasagne.layers.get_all_layers(l_feats)
+    tgt_layers = tgt_layers[tgt_layers.index(l_in) + 1:]
+    lasagne.layers.set_all_param_values(tgt_layers, src_params)
 
     # freeze
     for l in tgt_layers:
@@ -104,7 +104,7 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
         l_duration, max_time,
         name="l_mask")
 
-    l_d1 = lasagne.layers.dropout(l_posteriors, p=0.3)
+    l_d1 = lasagne.layers.dropout(l_feats, p=0.3)
     l_lstm1 = lasagne.layers.GRULayer(
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         grad_clipping=1., learn_init=True)

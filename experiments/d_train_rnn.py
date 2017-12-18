@@ -11,7 +11,7 @@ from lproc import rmap, subset
 
 from datasets.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
-from sltools.nn_utils import compute_scores, seq_hinge_loss  # , seq_ce_loss
+from sltools.nn_utils import compute_scores, seq_hinge_loss
 
 # from experiments.ch14_skel.a_data import tmpdir, gloss_seqs, durations, \
 #     train_subset, val_subset, vocabulary
@@ -28,10 +28,20 @@ from sltools.nn_utils import compute_scores, seq_hinge_loss  # , seq_ce_loss
 # from experiments.ch14_fusion.b_preprocess import feat_seqs
 # from experiments.ch14_fusion.c_models import build_lstm
 
-from experiments.ch14_skel_online.a_data import tmpdir, gloss_seqs, durations, \
+# from experiments.ch14_skel_online.a_data import tmpdir, gloss_seqs, durations, \
+#     train_subset, val_subset, vocabulary
+# from experiments.ch14_skel_online.b_preprocess import feat_seqs
+# from experiments.ch14_skel_online.c_models import build_lstm
+
+from experiments.ch14_shorttc.a_data import tmpdir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
-from experiments.ch14_skel_online.b_preprocess import feat_seqs
-from experiments.ch14_skel_online.c_models import build_lstm
+from experiments.ch14_shorttc.b_preprocess import feat_seqs
+from experiments.ch14_shorttc.c_models import build_lstm
+
+# from experiments.ch14_skel_ce.a_data import tmpdir, gloss_seqs, durations, \
+#     train_subset, val_subset, vocabulary
+# from experiments.ch14_skel_ce.b_preprocess import feat_seqs
+# from experiments.ch14_skel_ce.c_models import build_lstm
 
 
 def main():
@@ -55,7 +65,6 @@ def main():
 
     max_time = 128
     batch_size = 16
-    nlabels = 21
 
     layers_data = build_lstm(feats_shape=feat_seqs_train[0][0].shape,
                              batch_size=batch_size, max_time=max_time)
@@ -64,13 +73,14 @@ def main():
     #                          batch_size=batch_size, max_time=max_time)
     warmup = layers_data['warmup']
 
-    predict_fn = build_predict_fn(layers_data, batch_size, max_time, nlabels, warmup)
+    predict_fn = build_predict_fn(
+        layers_data, batch_size, max_time, len(vocabulary) + 1, warmup)
 
     # Training --------------------------------------------------------------------------
 
     weights = np.unique(np.concatenate(y), return_counts=True)[1] ** -0.7
     weights *= 21 / weights.sum()
-    loss_fn = partial(seq_hinge_loss, weights=weights)
+    loss_fn = partial(seq_hinge_loss, delta=.5, weights=weights)
     # loss_fn = partial(seq_ce_loss, weights=weights)
     updates_fn = lasagne.updates.adam
     report = shelve.open(os.path.join(tmpdir, "rnn_report"),
@@ -91,7 +101,7 @@ def main():
         print("\rbatch {:>5d}/{:<5d} loss : {:2.4f}".format(
               batch + 1, n_batches, loss), end='', flush=True)
 
-    for e in range(100):
+    for e in range(150):
         # Resume if possible ------------------------------------------------------------
 
         if e < resume_at:

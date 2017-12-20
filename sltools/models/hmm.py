@@ -1,23 +1,24 @@
 import copy
 import numpy as np
+from lproc import rmap, collate
 from scipy.misc import logsumexp
 import pomegranate
 
 from sltools.extra_distributions import PrecomputedDistribution
-from datasets.utils import gloss2seq
+from sltools.utils import gloss2seq
+from sltools.nn_utils import compute_scores
 
 
 class HMMRecognizer:
     def __init__(self, chains_lengths, posterior_model, labels, multiple_inputs=False):
-        # Create HMM
-        # idle_state -> [nlabels] * lr-words models -> idle_state
+        assert 0 not in labels
 
         self.chains_lengths = np.array(chains_lengths)
         self.multiple_inputs = multiple_inputs
         self.posterior = posterior_model
         self.hmm = None
 
-        self.labels = labels
+        self.labels = list(labels)
         self.label_masks = {l: np.full((self.nstates,), -np.inf)
                             for l in self.labels + [0]}
         self.label_masks[0][-1] = 0
@@ -44,7 +45,7 @@ class HMMRecognizer:
 
     def predict_states(self, X):
         predictions = []
-        for x in X:
+        for x in zip(*X):
             logposteriors = self.posterior.predict_logproba(*x)
             _, hmm_state_seq = self.hmm.viterbi(logposteriors - self.p_s)
             hmm_state_seq = np.array([s[0] for s in hmm_state_seq[1:]])
@@ -57,7 +58,7 @@ class HMMRecognizer:
 
     def fit_priors(self, X, gloss_seqs, smoothing):
         # Compute priors
-        durations = [len(x[0]) for x in X]
+        durations = [len(x) for x in X[0]]
 
         n_transitions = sum([len(g) for g in gloss_seqs])
         n_idle = sum([d - sum([g[2] - g[1] for g in gseq])
@@ -66,7 +67,7 @@ class HMMRecognizer:
 
         self.p_s = logsumexp([
             logsumexp(self.posterior.predict_logproba(*x), axis=0)
-            for x in X], axis=0)
+            for x in zip(*X)], axis=0)
         self.p_s -= logsumexp(self.p_s)
 
         self.p_s *= smoothing
@@ -84,10 +85,10 @@ class HMMRecognizer:
             subsgments = [(seq, start, stop)
                           for seq, gloss_seq in enumerate(gloss_seqs)
                           for l, start, stop in gloss_seq if l == self.labels[i]]
-            Xw = [tuple(Xm[start:stop] for Xm in X[seq])
-                  for seq, start, stop in subsgments]
+            Xw = [[Xm[seq][start:stop] for seq, start, stop in subsgments]
+                  for Xm in X]
             Xw = [self.posterior.predict_logproba(*x)[:, axes[0]:axes[1]]
-                  for x in Xw]
+                  for x in zip(*Xw)]
             Xw = [x - self.p_s[None, axes[0]:axes[1]] for x in Xw]
             # Xw = [x - logsumexp(x, axis=1, keepdims=True) for x in Xw]
 
@@ -142,14 +143,14 @@ class HMMRecognizer:
 
     def align_states(self, X_seqs, gloss_seqs, linear=False):
         if linear:  # fresh start -> hard label assignment
-            seqs_duration = [len(x[0]) for x in X_seqs]
+            seqs_duration = [len(x) for x in X_seqs[0]]
             return [self._linearstateassignment(g, d)
                     for g, d in zip(gloss_seqs, seqs_duration)]
 
         else:
             assert self.hmm is not None
             return [self.state2idx[self._supervized_state_alignment(f_seq, s_seq)]
-                    for f_seq, s_seq in zip(X_seqs, gloss_seqs)]
+                    for *f_seq, s_seq in zip(*X_seqs, gloss_seqs)]
 
     def _linearstateassignment(self, gloss_seq, seq_duration):
         """Linearly spread states within subsequences ('hard' state assignment)."""
@@ -225,3 +226,39 @@ class HMMRecognizer:
 
         return [(int(e[0].name), int(e[1].name), np.exp(e[2]['probability']))
                 for e in wmodel.graph.edges(data=True)]
+
+
+def hmm_perfs(model, feats_seqs, gloss_seqs, seqs_durations, vocabulary,
+              previous_model=None):
+    epoch_report = {}
+
+    # Complete model
+    preds = model.predict(feats_seqs)
+    labels = [gloss2seq(g_, d_, 0) for g_, d_ in zip(gloss_seqs, seqs_durations)]
+    epoch_report['jaccard'], epoch_report['framewise'], epoch_report['confusion'] = \
+        compute_scores(preds, labels, vocabulary)
+
+    # State-wise
+    preds = [np.argmax(model.posterior.predict_proba(*x), axis=1)
+             for x in zip(*feats_seqs)]
+    if previous_model is None:  # fresh start -> hard label assignment
+        state_labels = rmap(model._linearstateassignment, gloss_seqs, seqs_durations)
+    else:
+        states = rmap(lambda f, g: previous_model._supervized_state_alignment(f, g),
+                      collate(feats_seqs), gloss_seqs)
+        state_labels = rmap(lambda s: previous_model.state2idx[s], states)
+
+    epoch_report['statewise_jaccard'], epoch_report['statewise_framewise'], \
+        epoch_report['statewise_confusion'] = compute_scores(
+        preds, state_labels, vocabulary)
+
+    # Posterior model
+    idx2labels = np.concatenate(
+        [np.full((model.chains_lengths[i],), model.labels[i])
+         for i in range(model.nlabels)] + [np.zeros((1,))]).astype(np.int32)
+    preds = [idx2labels[p] for p in preds]
+
+    epoch_report['posterior_jaccard'], epoch_report['posterior_framewise'], \
+        epoch_report['posterior_confusion'] = compute_scores(preds, labels, vocabulary)
+
+    return epoch_report

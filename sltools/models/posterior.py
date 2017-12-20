@@ -111,16 +111,12 @@ class PosteriorModel:
 
     def fit(self, X, y, weights=None, refit=False,
             n_epochs=15, l_rate=0.0002, loss="cross_entropy", updates="adam",
-            filter_chunks=None, callback=None):
+            callback=None):
 
         # Build/compile model
         if not self.l_out or not refit:
-            self.input_shapes = [Xm.shape[1:] for Xm in X[0]]
+            self.input_shapes = [Xm[0].shape[1:] for Xm in X]
             self._build()
-
-        # Just in case
-        if n_epochs == 0:
-            return
 
         # Setup training data
         durations = [len(seq) for seq in y]
@@ -129,14 +125,11 @@ class PosteriorModel:
                   for seq, d in enumerate(durations)
                   for start in range(0, d - self.warmup, step)]
 
-        if filter_chunks is not None:
-            chunks = filter_chunks(X, y, chunks, self.nstates - 1)
-
         if weights is None:
-            weights = np.ones((self.nstates,))
+            weights = np.ones((self.nstates,), dtype=np.float32)
         else:
-            weights = np.asarray(weights)
-        weights = theano.shared(weights.astype(theano.config.floatX))
+            weights = np.asarray(weights, dtype=np.float32)
+        weights = T.as_tensor_variable(weights)
 
         # Build/compile training routines
         durations_var = T.ivector()
@@ -206,9 +199,8 @@ class PosteriorModel:
             for i, (seq, start, stop) in enumerate(chunks):
                 d_buffer[j] = stop - start
                 y_buffer[j, :stop - start] = y[seq][start:stop]
-                X_seq = X[seq]
                 for k in range(len(self.l_in)):
-                    X_buffers[k][j][:stop - start] = X_seq[k][start:stop]
+                    X_buffers[k][j][:stop - start] = X[k][seq][start:stop]
 
                 if j + 1 == self.batch_size or i == len(chunks) - 1:
                     loss = float(train_fn(*X_buffers, d_buffer, y_buffer))

@@ -63,30 +63,30 @@ def split_dataset_seqs(dataset, sequences, *kargs, **kwargs):
     return x, y
 
 
-def gloss2seq(glosses, duration, default=-1, dtype=np.int32):
-    seq = np.full((duration,), default, dtype=dtype)
-    for l, start, stop in glosses:
-        if start < 0 or stop > duration:
-            raise ValueError
-        seq[start:stop] = l
-    return seq
+# def gloss2seq(glosses, duration, default=-1, dtype=np.int32):
+#     seq = np.full((duration,), default, dtype=dtype)
+#     for l, start, stop in glosses:
+#         if start < 0 or stop > duration:
+#             raise ValueError
+#         seq[start:stop] = l
+#     return seq
 
 
-def seq2gloss(seq):
-    glosses = []
-
-    current = seq[0]
-    start = 0
-    for i, v in enumerate(seq):
-        if v != current:
-            glosses.append((current, start, i))
-            current = v
-            start = i
-
-    if start < len(seq):
-        glosses.append((current, start, len(seq)))
-
-    return glosses
+# def seq2gloss(seq):
+#     glosses = []
+#
+#     current = seq[0]
+#     start = 0
+#     for i, v in enumerate(seq):
+#         if v != current:
+#             glosses.append((current, start, i))
+#             current = v
+#             start = i
+#
+#     if start < len(seq):
+#         glosses.append((current, start, len(seq)))
+#
+#     return glosses
 
 
 class VideoSequence(Sequence):

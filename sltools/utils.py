@@ -96,12 +96,6 @@ def seq2gloss(seq):
     return glosses
 
 
-def pad_seq(seq, max_time):
-    return np.concatenate((seq[:max_time],
-                           np.zeros((max(0, max_time - len(seq)),) + seq.shape[1:],
-                                    dtype=seq.dtype)))
-
-
 # Image ---------------------------------------------------------------------------------
 
 def crop(img, pos, size) -> np.array:

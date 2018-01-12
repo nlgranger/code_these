@@ -20,12 +20,12 @@ from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
 
 # Report setting ------------------------------------------------------------------------
 
-experiment_name = "fusion_171219"
+experiment_name = "skel_180112"
 report = shelve.open(os.path.join(tmpdir, experiment_name),
                      protocol=pkl.HIGHEST_PROTOCOL)
 with open(__file__) as f:
     this_script = f.read()
-if "script" in report.keys():
+if "script" in report.keys() and this_script != report["script"]:
     logging.warning("The script has changed since the previous time")
     report["script_altered"] = this_script
 else:
@@ -35,11 +35,11 @@ else:
 # Data ----------------------------------------------------------------------------------
 
 from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
-from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+# from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
 
 feats_seqs_train = [
     subset(skel_feat_seqs, train_subset),
-    subset(bgr_feat_seqs, train_subset)
+    # subset(bgr_feat_seqs, train_subset)
     ]
 gloss_seqs_train = subset(gloss_seqs, train_subset)
 seqs_durations_train = subset(durations, train_subset)
@@ -48,7 +48,7 @@ target_train = rmap(lambda g, d: gloss2seq(g, d, 0),
 
 feats_seqs_val = [
     subset(skel_feat_seqs, val_subset),
-    subset(bgr_feat_seqs, val_subset)
+    # subset(bgr_feat_seqs, val_subset)
     ]
 gloss_seqs_val = subset(gloss_seqs, val_subset)
 seqs_durations_val = subset(durations, val_subset)
@@ -57,24 +57,24 @@ target_val = rmap(lambda g, d: gloss2seq(g, d, 0),
 
 # Model ---------------------------------------------------------------------------------
 
-# from experiments.hmmvsrnn_reco.c_models import skel_lstm
+from experiments.hmmvsrnn_reco.c_models import skel_lstm
 # from experiments.hmmvsrnn_reco.c_models import bgr_lstm
-from experiments.hmmvsrnn_reco.c_models import fusion_lstm
+# from experiments.hmmvsrnn_reco.c_models import fusion_lstm
 
 max_time = 128
 batch_size = 16
 
 # Skeleton end-to-end
-# model_dict = skel_lstm(feats_shape=skel_feat_seqs[0][0].shape,
-#                        batch_size=batch_size, max_time=max_time)
+model_dict = skel_lstm(feats_shape=skel_feat_seqs[0][0].shape,
+                       batch_size=batch_size, max_time=max_time)
 # BGR end-to-end
 # layers_data = build_lstm(skel_feats_shape=skel_feat_seqs[0][0][0].shape,
 #                          bgr_feats_shape=feat_seqs_train[0][1][0].shape,
 #                          batch_size=batch_size, max_time=max_time)
 # Fusion end-to-end
-model_dict = fusion_lstm(skel_feats_shape=skel_feat_seqs[0][0].shape,
-                         bgr_feats_shape=bgr_feat_seqs[0][0].shape,
-                         batch_size=batch_size, max_time=max_time)
+# model_dict = fusion_lstm(skel_feats_shape=skel_feat_seqs[0][0].shape,
+#                          bgr_feats_shape=bgr_feat_seqs[0][0].shape,
+#                          batch_size=batch_size, max_time=max_time)
 
 predict_fn = build_predict_fn(model_dict, batch_size, max_time)
 
@@ -82,7 +82,7 @@ predict_fn = build_predict_fn(model_dict, batch_size, max_time)
 
 weights = np.unique(np.concatenate(target_train), return_counts=True)[1] ** -0.7
 weights *= 21 / weights.sum()
-loss_fn = partial(seq_hinge_loss, delta=.5, weights=weights)
+loss_fn = partial(seq_hinge_loss, delta=1, weights=weights)
 # loss_fn = partial(seq_ce_loss, weights=weights)
 updates_fn = lasagne.updates.adam
 save_every = 5
@@ -90,7 +90,7 @@ resume_at = sorted([int(e[6:]) for e in report.keys()
                     if e.startswith("epoch")
                     and "params" in report[e].keys()])
 resume_at = -1 if len(resume_at) == 0 else resume_at[-1]
-min_progress = 2e-3  # if improvement is below, decrease learning rate
+min_progress = 5e-4  # if improvement is below, decrease learning rate
 l_rate = .001
 train_batch_fn = build_train_fn(model_dict, max_time, model_dict['warmup'],
                                 loss_fn, updates_fn)

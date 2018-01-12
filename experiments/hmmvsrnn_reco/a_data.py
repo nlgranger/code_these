@@ -1,19 +1,21 @@
 #!/bin/env python3
 
-import logging
 import os
+import logging
 import pickle as pkl
 
 import numpy as np
-from lproc import rmap
 from numpy.random import uniform
 from scipy.ndimage.filters import gaussian_filter1d
+from lproc import rmap
 
-from datasets import chalearn2014 as dataset
-from sltools.preprocess import interpolate_positions, fix_contrast
+from sltools.preprocess import interpolate_positions
 from sltools.transform import Transformation, transform_durations, transform_glosses, \
     transform_pose2d, transform_pose3d, transform_frames
 from sltools.utils import split_seq, join_seqs
+
+from datasets import chalearn2014 as dataset
+
 
 tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache")
 gloss_seqs = None
@@ -48,13 +50,11 @@ def prepare():
     global train_subset, val_subset, test_subset, \
         durations, gloss_seqs, pose2d_seqs, pose3d_seqs
 
+    # Create temporary directory
     if not os.path.exists(tmpdir):
         os.mkdir(tmpdir)
 
-    augmentation_factor = 5
-
-    if not os.path.exists(tmpdir):
-        os.mkdir(tmpdir)
+    # Load data
 
     train_subset, val_subset, test_subset = dataset.default_splits()
     pose2d_seqs = [dataset.positions(i) for i in range(len(dataset))]
@@ -80,7 +80,7 @@ def prepare():
                          for im in invalid_masks])[0]
     train_subset = np.setdiff1d(train_subset, rejected)
     if len(rejected) > 0:
-        logging.warning("Eliminated {} sequences with missing positions"
+        logging.warning("eliminated {} sequences with missing positions"
                         .format(len(rejected)))
 
     # Default preprocessing
@@ -108,7 +108,7 @@ def prepare():
                      joints.FootLeft, joints.HipRight, joints.KneeRight,
                      joints.AnkleRight, joints.FootRight])
 
-    for _ in range(augmentation_factor - 1):
+    for _ in range(5 - 1):
         offset = len(transformations)
         transformations += [
             (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
@@ -148,8 +148,8 @@ def reload():
         durations, gloss_seqs, transformations, \
             train_subset, val_subset, test_subset = pkl.load(f)
 
-    segments = np.stack((np.cumsum(durations) - durations,
-                         np.cumsum(durations)), axis=1)
+    segments = np.stack([np.cumsum(durations) - durations,
+                         np.cumsum(durations)], axis=1)
 
     pose2d_seqs = split_seq(
         np.load(os.path.join(tmpdir, "pose2d_seqs.npy"), mmap_mode='r'),
@@ -160,7 +160,6 @@ def reload():
         segments)
 
     frame_seqs = rmap(lambda rt: np.array(dataset.bgr_frames(rt[0])), transformations)
-    frame_seqs = rmap(fix_contrast, frame_seqs)
     frame_seqs = rmap(transform_frames, frame_seqs, [t for _, t in transformations])
 
 

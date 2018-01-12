@@ -95,7 +95,7 @@ def transform_pose3d(pose3d_seq, t: Transformation):
                             axis=0, kind='cubic' if duration > 3 else 'nearest',
                             assume_sorted=True)
     output = interpolator(
-        np.linspace(0, duration - 1, transform_durations(duration, t)))\
+        np.linspace(0, duration - 1, transform_durations(duration, t))) \
         .astype(dtype)
 
     return output
@@ -114,7 +114,6 @@ def transform_frames(frame_seq, t: Transformation):
 
     # space scale, z-shift and tilt
     for f, (rx, ry), zc in zip(frame_seq, t.ref2d, zcorrection):
-
         pts1 = np.float32([[rx, ry], [rx + 10, ry], [rx, ry + 10]])
         pts2 = np.float32(
             [[rx, ry],

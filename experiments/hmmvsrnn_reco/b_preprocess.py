@@ -10,9 +10,10 @@ from lproc import rmap
 from numpy.lib.format import open_memmap
 from scipy.ndimage.filters import gaussian_filter1d
 from sltools.utils import split_seq, simple_mode_search, crop
+from sltools.preprocess import fix_contrast
 
 from experiments.hmmvsrnn_reco.a_data import tmpdir, train_subset, \
-    durations, pose2d_seqs, pose3d_seqs, frame_seqs, joints
+    durations, pose2d_seqs, pose3d_seqs, frame_seqs, gloss_seqs, joints
 
 
 # Exported values -----------------------------------------------------------------------
@@ -123,10 +124,18 @@ def skel_feat(pose_seq):
 
 
 def bgr_feats(frame_seq, pose2d_seq):
-    return np.array([
-        [crop(f, p[joints.WristLeft], crop_size)[:, ::-1],
-         crop(f, p[joints.WristRight], crop_size)]
-        for f, p in zip(frame_seq, pose2d_seq)])
+    d = len(pose2d_seq)
+    cropw, croph = crop_size
+    crop_seq = np.empty((d, 2, cropw + 30, croph + 30, 3), dtype=frame_seq[0].dtype)
+    for c, f, p in zip(crop_seq, frame_seq, pose2d_seq):
+        c[1] = crop(f, p[joints.WristLeft], (cropw + 30, croph + 30))
+        c[0] = crop(f, p[joints.WristRight], (cropw + 30, croph + 30))
+
+    output = np.empty((d, 2, cropw, croph), dtype=frame_seq[0].dtype)
+    output[:, 0] = fix_contrast(crop_seq[:, 0])[:, 15:-15, -15:15:-1]
+    output[:, 1] = fix_contrast(crop_seq[:, 1])[:, 15:-15, 15:-15]
+
+    return output
 
 
 # ---------------------------------------------------------------------------------------
@@ -159,16 +168,24 @@ def prepare():
 
     print("")
 
-    # Post processing
+    # Post processing (normalize over gesture poses)
     train_mask = np.full((total_duration,), False)
     for r in train_subset:
-        start, stop = subsequences[r]
-        train_mask[start:stop] = True
+        sstart, _ = subsequences[r]
+        for _, gstart, gstop in gloss_seqs[r]:
+            train_mask[sstart + gstart:sstart + gstop] = True
     train_mask = np.random.permutation(np.where(train_mask)[0])[:100000]
     m = np.mean(storage[train_mask, :], axis=0, keepdims=True)
-    s = np.std(storage[train_mask, :], axis=0, keepdims=True) + 0.01
-    storage -= m
-    storage /= s
+    s = np.std(storage[train_mask, :], axis=0, keepdims=True)
+    storage[:, :] -= m
+    storage[:, :] /= s
+    # Modality-wise normalization (helps visualize)
+    # for a, b in [(0, 4), (4, 20), (20, 47), (47, 74),
+    #              (74, 110), (110, 218), (218, 245), (245, 248)]:
+    #     m = np.mean(storage[train_mask, a:b], keepdims=True)
+    #     s = np.std(storage[train_mask, a:b], keepdims=True)
+    #     storage[:, a:b] -= m
+    #     storage[:, a:b] /= s
 
     # Processing pipeline for BGR frames
     feat_seqs = rmap(bgr_feats, frame_seqs, pose2d_seqs)

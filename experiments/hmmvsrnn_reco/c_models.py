@@ -94,10 +94,7 @@ def wide_resnet(l_in, n, k, shortcut="identity"):
 
 
 @SerializableFunc
-def skel_encoder(l_in):
-    dropout = 0.3
-    tconv_sz = 17
-    filter_dilation = 1
+def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
     warmup = (tconv_sz * filter_dilation) // 2
 
     l1 = lasagne.layers.DenseLayer(
@@ -196,12 +193,12 @@ def skel_lstm(feats_shape, batch_size=6, max_time=64):
         l_duration, max_time,
         name="l_mask")
 
-    l_d1 = lasagne.layers.dropout(l_feats, p=0.3)
+    l_d1 = lasagne.layers.dropout(l_feats, p=.3)
     l_lstm1 = lasagne.layers.GRULayer(
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         grad_clipping=1., learn_init=True)
     l_lstm2 = lasagne.layers.GRULayer(
-        l_feats, num_units=n_lstm_units, mask_input=l_mask,
+        l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
     l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
@@ -222,7 +219,7 @@ def skel_lstm(feats_shape, batch_size=6, max_time=64):
 
 
 @SerializableFunc
-def build_lstm(feats_shape, batch_size=6, max_time=64):
+def bgr_lstm(feats_shape, batch_size=6, max_time=64):
     n_lstm_units = 172
 
     l_in = lasagne.layers.InputLayer(
@@ -245,7 +242,7 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         grad_clipping=1., learn_init=True)
     l_lstm2 = lasagne.layers.GRULayer(
-        l_feats, num_units=n_lstm_units, mask_input=l_mask,
+        l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
     l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
@@ -267,7 +264,7 @@ def build_lstm(feats_shape, batch_size=6, max_time=64):
 
 @SerializableFunc
 def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6):
-    n_lstm_units = 172
+    n_lstm_units = 172  # TODO: check if 128 reduces overfitting
 
     l_in_skel = lasagne.layers.InputLayer(
         shape=(batch_size, max_time) + skel_feats_shape)
@@ -291,7 +288,7 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6):
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         grad_clipping=1., learn_init=True)
     l_lstm2 = lasagne.layers.GRULayer(
-        l_feats, num_units=n_lstm_units, mask_input=l_mask,
+        l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
     l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)

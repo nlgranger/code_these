@@ -16,7 +16,8 @@ cdef class PrecomputedDistribution(Model):
     def __reduce__(self):
         return self.__class__, (self.idx, self.d)
 
-    cdef void _log_probability(self, double* symbol, double* log_probability, int n) nogil:
+    cdef void _log_probability(
+            self, double* symbol, double* log_probability, int n) nogil:
         log_probability[0] = symbol[self.idx]
 
     cdef double _vl_log_probability(self, double* symbol, int n) nogil:
@@ -24,13 +25,6 @@ cdef class PrecomputedDistribution(Model):
             print("not implemented")
         return 0
 
-    cdef double _summarize(self, double* items, double* weights,
-                           SIZE_t n) nogil:
+    cdef double _summarize(
+            self, double* items, double* weights, int n, int column_idx, int d) nogil:
         return 0
-
-    def to_json(self):
-        return json.dumps({
-            'class' :  self.__class__.__module__ + "." + self.__class__.__name__,
-            'idx' : self.idx,
-            'd' : self.d
-        })

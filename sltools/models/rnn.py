@@ -7,16 +7,17 @@ from lproc import chunk_load
 from sltools.nn_utils import log_softmax, as_chunks, from_chunks
 
 
-def build_train_fn(layers, max_len, warmup,
+def build_train_fn(model_dict, max_time, warmup,
                    loss_fn, updates_fn=lasagne.updates.adam):
-    input_vars = [l.input_var for l in layers['l_in']]
-    durations_var = layers['l_duration'].input_var
+    input_vars = [l.input_var for l in model_dict['l_in']]
+    durations_var = model_dict['l_duration'].input_var
     targets = theano.tensor.imatrix()
-    linout, masks = lasagne.layers.get_output([layers['l_linout'], layers['l_mask']])
+    linout, masks = lasagne.layers.get_output(
+        [model_dict['l_linout'], model_dict['l_mask']])
     loss = loss_fn(linout, targets, masks)
-    loss = T.mean(loss[:, warmup:max_len - warmup])
+    loss = T.mean(loss[:, warmup:max_time - warmup])
 
-    parameters = lasagne.layers.get_all_params(layers['l_linout'], trainable=True)
+    parameters = lasagne.layers.get_all_params(model_dict['l_linout'], trainable=True)
     l_rate_var = T.scalar('l_rate')
     # grads = theano.grad(loss, parameters)
     # grads = [T.clip(grad, -0.01, 0.01) for grad in grads]  # TODO: as parameter

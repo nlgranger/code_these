@@ -23,7 +23,7 @@ def interpolate_positions(p, invalid, kind='cubic'):
 
 def fix_contrast(video):
     video = np.asarray(video)
-    clahe = cv2.createCLAHE(clipLimit=.50, tileGridSize=(32, 32))
+    clahe = cv2.createCLAHE(clipLimit=10, tileGridSize=(8, 8))
     d, h, w, _ = video.shape
     output = np.empty((d, h, w), dtype=np.float32)
 

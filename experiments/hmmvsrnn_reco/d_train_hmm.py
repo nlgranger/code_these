@@ -5,6 +5,7 @@ import logging
 import pickle as pkl
 import shelve
 from copy import deepcopy
+from functools import partial
 import numpy as np
 from lproc import rmap, subset
 
@@ -17,7 +18,7 @@ from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
 
 # Report setting ------------------------------------------------------------------------
 
-experiment_name = "hmm_skel_171220"
+experiment_name = "hmm_skel_transfer_180205"
 report = shelve.open(os.path.join(tmpdir, experiment_name),
                      protocol=pkl.HIGHEST_PROTOCOL)
 with open(__file__) as f:
@@ -32,22 +33,43 @@ if "script" in report.keys():
 
 # Data ----------------------------------------------------------------------------------
 
-from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
-# from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+# Skeleton end-to-end
+# from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
+# feats_seqs_train = [subset(skel_feat_seqs, train_subset)]
+# feats_seqs_val = [subset(skel_feat_seqs, val_subset)]
 
-feats_seqs_train = [
-    subset(skel_feat_seqs, train_subset),
-    # subset(bgr_feat_seqs, train_subset)
-    ]
+# BGR end-to-end
+# from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+# feats_seqs_train = [subset(bgr_feat_seqs, train_subset)]
+# feats_seqs_val = [subset(bgr_feat_seqs, val_subset)]
+
+# Fusion end-to-end
+# from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
+# from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+# feats_seqs_train = [
+#     subset(skel_feat_seqs, train_subset),
+#     subset(bgr_feat_seqs, train_subset)
+#     ]
+# feats_seqs_val = [
+#     subset(skel_feat_seqs, val_subset),
+#     subset(bgr_feat_seqs, val_subset)
+#     ]
+
+# Transfer
+from experiments.hmmvsrnn_reco.b_preprocess_transfer import transfer_features
+transfered_feats_seqs = transfer_features(
+    "rnn_skel_180201", "rnn_skel",
+    max_time=128, batch_size=16,
+    encoder_kwargs={'tconv_sz': 17, 'filter_dilation': 1})
+feats_seqs_train = [subset(transfered_feats_seqs, train_subset)]
+feats_seqs_val = [subset(transfered_feats_seqs, val_subset)]
+
+# Annotations
 gloss_seqs_train = subset(gloss_seqs, train_subset)
 seqs_durations_train = subset(durations, train_subset)
 target_train = rmap(lambda g, d: gloss2seq(g, d, 0),
                     gloss_seqs_train, seqs_durations_train)
 
-feats_seqs_val = [
-    subset(skel_feat_seqs, val_subset),
-    # subset(bgr_feat_seqs, val_subset)
-    ]
 gloss_seqs_val = subset(gloss_seqs, val_subset)
 seqs_durations_val = subset(durations, val_subset)
 target_val = rmap(lambda g, d: gloss2seq(g, d, 0),
@@ -55,13 +77,15 @@ target_val = rmap(lambda g, d: gloss2seq(g, d, 0),
 
 # Model ---------------------------------------------------------------------------------
 
-from experiments.hmmvsrnn_reco.c_models import skel_encoder as encoder
-# from experiments.hmmvsrnn_reco.c_models import bgr_lstm
-# from experiments.hmmvsrnn_reco.c_models import fusion_lstm
+# from experiments.hmmvsrnn_reco.c_models import skel_encoder as encoder
+# from experiments.hmmvsrnn_reco.c_models import bgr_encoder as encoder
+# from experiments.hmmvsrnn_reco.c_models import fusion_encoder as encoder
+from experiments.hmmvsrnn_reco.c_models import identity_encoder as encoder
 
 chains_lengths = [5] * 20
 max_len = 128
 batch_size = 16
+encoder = partial(encoder, warmup=(17 * 1) // 2)
 posterior = PosteriorModel(encoder, sum(chains_lengths) + 1, max_len, batch_size)
 recognizer = HMMRecognizer(chains_lengths, posterior, vocabulary)
 
@@ -157,8 +181,8 @@ for i in range(len(epoch_schedule)):
         feats_seqs_val, gloss_seqs_val, seqs_durations_val,
         vocabulary, previous_recognizer)
     report["epoch {:>3d}".format(i)] = {
-        'train_report': train_report,
-        'val_report': val_report,
+        'train_scores': train_report,
+        'val_scores': val_report,
         'model': deepcopy(recognizer),
         'settings': {
             'chains_lengths': chains_lengths,

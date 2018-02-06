@@ -9,6 +9,11 @@ from sklearn.metrics import confusion_matrix
 
 # Generic mathematical functions --------------------------------------------------------
 
+def logsumexp(x, axis, keepdims=False):
+    k = T.max(x, axis=axis, keepdims=True)
+    return T.log(T.sum(T.exp(x - k), axis=axis, keepdims=keepdims)) + k
+
+
 def log_softmax(x):
     xdev = x - x.max(axis=2, keepdims=True)
     return xdev - T.log(T.sum(T.exp(xdev), axis=2, keepdims=True))
@@ -43,16 +48,18 @@ def jaccard(y_true, y_pred):
 
 
 def seq_hinge_loss(linout, targets, masks, weights=None, delta=1.):
-    batch_size, max_len, nlabels = linout.shape
+    batch_size, max_len, voca_size = linout.shape
 
     if weights is None:
-        weights = T.ones((nlabels,))
+        weights = T.ones((voca_size,))
     else:
         weights = T.as_tensor_variable(weights).astype('floatX')
 
+    logits = T.exp(log_softmax(linout))
+
     return T.reshape(
         lasagne.objectives.multiclass_hinge_loss(
-            T.reshape(linout, (batch_size * max_len, nlabels)),
+            T.reshape(logits, (batch_size * max_len, voca_size)),
             T.flatten(targets), delta=delta) * weights[T.flatten(targets)],
         (batch_size, max_len)) * masks
 

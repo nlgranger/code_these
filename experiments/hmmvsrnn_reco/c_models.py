@@ -111,7 +111,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
     warmup = (tconv_sz * filter_dilation) // 2
 
     l1 = lasagne.layers.DenseLayer(
-        l_in, num_units=1024,
+        l_in, num_units=480,
         num_leading_axes=2,
         nonlinearity=None)
     l1 = BatchNormLayer(l1, axes=(0, 1))
@@ -120,7 +120,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
     d1 = DropoutLayer(l1, p=dropout)
 
     l2 = lasagne.layers.DenseLayer(
-        d1, num_units=1024,
+        d1, num_units=480,
         num_leading_axes=2,
         nonlinearity=None)
     l2 = BatchNormLayer(l2, axes=(0, 1))
@@ -128,7 +128,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
 
     d2 = DropoutLayer(l2, p=dropout)
 
-    l3 = TemporalConv(d2, num_filters=172, filter_size=tconv_sz,
+    l3 = TemporalConv(d2, num_filters=128, filter_size=tconv_sz,
                       filter_dilation=filter_dilation, pad='same',
                       conv_type='regular',
                       nonlinearity=None)
@@ -145,6 +145,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
 def bgr_encoder(l_in, dropout=0., tconv_sz=17, filter_dilation=1):
     warmup = (tconv_sz * filter_dilation) // 2
     batch_size, max_time, _, *crop_size = l_in.output_shape
+    crop_size = tuple(crop_size)
 
     # stack pairs of small images into one batch of images
     l_r1 = ReshapeLayer(l_in, (-1, 1) + crop_size)

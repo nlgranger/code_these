@@ -158,11 +158,6 @@ class PosteriorModel:
         else:
             raise ValueError
 
-        # l2_penalty = lasagne.regularization.regularize_layer_params(
-        #     self.l_out, lasagne.regularization.l2)
-        #
-        # loss += l2_penalty * 1e-4
-
         loss = T.mean(loss[:, self.warmup:self.max_len - self.warmup])
 
         parameters = lasagne.layers.get_all_params(self.l_out, trainable=True)

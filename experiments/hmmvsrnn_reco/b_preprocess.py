@@ -1,12 +1,14 @@
 #!/bin/env python3
 
 import os
+import shelve
 from datetime import timedelta
 from time import time
 from itertools import combinations
 
 import numpy as np
 from lproc import rmap
+import seqtools
 from numpy.lib.format import open_memmap
 from scipy.ndimage.filters import gaussian_filter1d
 from sltools.utils import split_seq, simple_mode_search, crop
@@ -136,6 +138,83 @@ def bgr_feats(frame_seq, pose2d_seq):
     output[:, 1] = fix_contrast(crop_seq[:, 1])[:, 15:-15, 15:-15]
 
     return output
+
+
+def transfer_feats(transfer_from, freeze_at):
+    import theano
+    import theano.tensor as T
+    import lasagne
+    from sltools.nn_utils import adjust_length
+    from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn, \
+        autoreload_feats
+
+    report = shelve.open(os.path.join(tmpdir, transfer_from))
+
+    if report['meta']['model'] == "hmm":
+        _, recognizer, _ = reload_best_hmm(report)
+        l_in = recognizer.posterior.l_in
+        if freeze_at == "embedding":
+            l_feats = recognizer.l_feats
+        elif freeze_at == "logits":
+            l_feats = recognizer.l_raw
+        elif freeze_at == "posteriors":
+            l_feats = lasagne.layers.NonlinearityLayer(recognizer.l_out, T.exp)
+        else:
+            raise ValueError()
+        batch_size, max_time = l_in[0].input_shape  # TODO: fragile
+        warmup = recognizer.posterior.warmup
+
+    else:
+        _, model_dict, _ = reload_best_rnn(report)
+        l_in = model_dict['l_in']
+        l_feats = model_dict['l_feats']
+        batch_size, max_time = l_in[0].input_shape  # TODO: fragile
+        warmup = model_dict['warmup']
+
+    feats_var = lasagne.layers.get_output(l_feats)
+    predict_batch_fn = theano.function([l.input_var for l in l_in], feats_var)
+
+    step = max_time - 2 * warmup
+
+    # turn sequences into chunks
+    chunks = [(i, k, min(d, k + max_time))
+              for i, d in enumerate(durations)
+              for k in range(0, d - warmup, step)]
+    chunked_sequences = []
+    for feat in autoreload_feats(report['meta']['modality']):
+        def get_chunk(i, t1, t2):
+            return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
+
+        chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
+    chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])
+    chunked_sequences = seqtools.collate(chunked_sequences)
+
+    # turn into minibatches
+    null_sample = chunked_sequences[0]
+    n_features = len(null_sample)
+
+    def collate(b):
+        return [np.array([b[i][c] for i in range(batch_size)])
+                for c in range(n_features)]
+
+    minibatches = seqtools.batch(
+        chunked_sequences, batch_size, pad=null_sample, collate_fn=collate)
+    minibatches = seqtools.prefetch(minibatches, nworkers=2, max_buffered=10)
+
+    # process
+    batched_predictions = seqtools.starmap(predict_batch_fn, minibatches)
+    batched_predictions = seqtools.add_cache(batched_predictions)
+    chunked_predictions = seqtools.unbatch(batched_predictions, batch_size)
+
+    # recompose
+    out = [np.empty((d,) + l_feats.output_shape[2:], dtype=np.float32)
+           for d in durations]
+
+    for v, (s, start, stop) in zip(chunked_predictions, chunks):
+        skip = warmup if start > 0 else 0
+        out[s][start + skip:stop] = v[skip:stop - start]
+
+    return out
 
 
 # ---------------------------------------------------------------------------------------

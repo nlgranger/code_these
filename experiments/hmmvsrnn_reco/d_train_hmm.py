@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import os
+import datetime
 import logging
-import pickle as pkl
 import shelve
+import json
 from copy import deepcopy
 from functools import partial
+import argparse
 import numpy as np
 from lproc import rmap, subset
 
@@ -16,17 +18,52 @@ from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
 
 
+# Script arguments ----------------------------------------------------------------------
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument("--name")
+argparser.add_argument("--modality")
+argparser.add_argument("--variant")
+date = datetime.date.today()
+argparser.add_argument("--date",
+                       default="{:02d}{:02d}{:02d}".format(
+                           date.year % 100, date.month, date.day))
+argparser.add_argument("--notes", default="")
+argparser.add_argument("--batch_size")
+argparser.add_argument("--max_time")
+argparser.add_argument("--encoder_kwargs")
+args = argparser.parse_args()
+
+experiment_name = args.name
+modality = args.modality
+variant = args.variant
+date = args.date
+notes = args.notes
+batch_size = int(args.batch_size)
+max_time = int(args.max_time)
+encoder_kwargs = json.loads(args.encoder_kwargs)
+
+
 # Report setting ------------------------------------------------------------------------
 
-model = "hmm"
-modality = "skel"
-variant = "tc7"
-date = "180215"
+report = shelve.open(os.path.join(tmpdir, experiment_name), protocol=-1)
 
-experiment_name = model + "_" + modality + "_" \
-    + (variant + "_" if variant != "" else "") + date
-report = shelve.open(os.path.join(tmpdir, experiment_name),
-                     protocol=pkl.HIGHEST_PROTOCOL)
+report['meta'] = {
+    'model': "hmm",
+    'modality': modality,
+    'variant': variant,
+    'date': date,
+    'notes': notes,
+    'experiment_name': experiment_name
+}
+
+report['args'] = {
+    'batch_size': batch_size,
+    'max_time': max_time,
+    'encoder_kwargs': encoder_kwargs
+}
+
+
 with open(__file__) as f:
     this_script = f.read()
 if "script" in report.keys():
@@ -39,24 +76,22 @@ if "script" in report.keys():
 
 # Data ----------------------------------------------------------------------------------
 
-if modality == "skel":  # Skeleton end-to-end
+if modality == "skel":
     from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
     feat_seqs = [skel_feat_seqs]
-elif modality == "bgr":  # BGR end-to-end
+elif modality == "bgr":
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
     feat_seqs = [bgr_feat_seqs]
-elif modality == "fusion":  # Fusion end-to-end
+elif modality == "fusion":
     from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
-elif modality == "transfer":  # Transfer
-    from experiments.hmmvsrnn_reco.b_preprocess_transfer import transfer_features
-    feat_seqs = [transfer_features(
-        "rnn_skel_180201", "rnn_skel",
-        max_time=128, batch_size=16,
-        encoder_kwargs={'tconv_sz': 17, 'filter_dilation': 1})]
+elif modality == "transfer":
+    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
+    feat_seqs = [transfer_feats(encoder_kwargs['transfer_from'],
+                                encoder_kwargs['freeze_at'])]
 else:
-    raise ValueError
+    raise ValueError()
 
 feat_seqs_train = [subset(f, train_subset) for f in feat_seqs]
 gloss_seqs_train = subset(gloss_seqs, train_subset)
@@ -67,7 +102,7 @@ feat_seqs_val = [subset(f, val_subset) for f in feat_seqs]
 gloss_seqs_val = subset(gloss_seqs, val_subset)
 durations_val = subset(durations, val_subset)
 targets_val = rmap(lambda g, d: gloss2seq(g, d, 0),
-                    gloss_seqs_val, durations_val)
+                   gloss_seqs_val, durations_val)
 
 # Model ---------------------------------------------------------------------------------
 
@@ -75,30 +110,23 @@ chains_lengths = [5] * 20
 
 if modality == "skel":
     from experiments.hmmvsrnn_reco.c_models import skel_encoder as encoder
-    encoder_kwargs = {'tconv_sz': 7, 'filter_dilation': 1}
-    posterior_kwargs = {'max_len': 128, 'batch_size': 16}
 elif modality == "bgr":
     from experiments.hmmvsrnn_reco.c_models import bgr_encoder as encoder
-    encoder_kwargs = {'tconv_sz': 17, 'filter_dilation': 1}
-    posterior_kwargs = {'max_len': 128, 'batch_size': 16}
 elif modality == "fusion":
     from experiments.hmmvsrnn_reco.c_models import fusion_encoder as encoder
-    encoder_kwargs = {'tconv_sz': 17, 'filter_dilation': 1}
-    posterior_kwargs = {'max_len': 128, 'batch_size': 16}
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.c_models import identity_encoder as encoder
-    encoder_kwargs = {'warmup': (17 * 1) // 2}
-    posterior_kwargs = {'max_len': 128, 'batch_size': 16}
+    from experiments.hmmvsrnn_reco.c_models import transfer_encoder as encoder
 else:
     raise ValueError
 
-encoder = partial(encoder, **encoder_kwargs)
-posterior = PosteriorModel(encoder, sum(chains_lengths) + 1, **posterior_kwargs)
-recognizer = HMMRecognizer(chains_lengths, posterior, vocabulary)
+posterior_kwargs = {
+    'nstates': sum(chains_lengths) + 1,
+    'batch_size': batch_size,
+    'max_len': max_time}
 
-report['chains_lengths'] = chains_lengths
-report['encoder_kwargs'] = encoder_kwargs
-report['posterior_kwargs'] = posterior_kwargs
+encoder = partial(encoder, **encoder_kwargs)
+posterior = PosteriorModel(encoder, **posterior_kwargs)
+recognizer = HMMRecognizer(chains_lengths, posterior, vocabulary)
 
 
 # Run training iterations ---------------------------------------------------------------

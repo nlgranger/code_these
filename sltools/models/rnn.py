@@ -1,10 +1,9 @@
-import random
 import numpy as np
 import theano
 import theano.tensor as T
 import lasagne
-from lproc import chunk_load
-from sltools.nn_utils import log_softmax, as_chunks, from_chunks
+import seqtools
+from sltools.nn_utils import log_softmax, adjust_length
 
 
 def build_train_fn(model_dict, max_time, warmup,
@@ -28,61 +27,59 @@ def build_train_fn(model_dict, max_time, warmup,
         loss, updates=updates)
 
 
-def seqs2batches(inputs, targets, batch_size, max_time, warmup,
-                 shuffle=False, drop_last=False):
-    durations = np.array([len(s) for s in inputs[0]])
-    step = max_time - 2 * warmup
-    chunks = [(i, k, min(k + max_time, d))
-              for i, d in enumerate(durations)
-              for k in range(0, d, step)]
+def build_predict_fn(model_dict, batch_size, max_time, nworkers=2):
+    warmup = model_dict['warmup']
+    l_in = model_dict['l_in']
+    l_duration = model_dict['l_duration']
+    l_out = lasagne.layers.ExpressionLayer(model_dict['l_linout'], log_softmax)
 
-    if shuffle:
-        random.shuffle(chunks)
-
-    chunked_sequences = [as_chunks(s, chunks, max_time)
-                         for s in inputs + [targets]]
-    chunks_durations = np.array([stop - start for _, start, stop in chunks],
-                                dtype=np.int32)
-
-    buffers = [np.zeros(shape=(4 * batch_size,) + x.shape,
-                        dtype=x.dtype) for x in next(zip(*chunked_sequences))]
-    buffers.append(np.zeros((4 * batch_size,), dtype=np.int32))
-    return chunk_load(
-        chunked_sequences + [chunks_durations], buffers, batch_size, drop_last)
-
-
-def build_predict_fn(model_dict, batch_size, max_time):
-    linout = lasagne.layers.get_output(model_dict['l_linout'], deterministic=True)
-    out = T.exp(log_softmax(linout))
+    out_var = lasagne.layers.get_output(l_out, deterministic=True)
     predict_batch_fn = theano.function(
-        [l.input_var for l in model_dict['l_in']]
-        + [model_dict['l_duration'].input_var],
-        out)
+        [l.input_var for l in l_in] + [l_duration.input_var], out_var)
 
-    def predict_fn(sequences):
-        durations = np.array([len(s) for s in sequences[0]])
-        step = max_time - 2 * model_dict['warmup']
-        chunks = [(i, k, min(k + max_time, d))
+    def predict_fn(feature_sequences):
+        durations = np.array([len(s) for s in feature_sequences[0]])
+        step = max_time - 2 * warmup
+
+        # turn sequences
+        chunks = [(i, k, min(d, k + max_time))
                   for i, d in enumerate(durations)
-                  for k in range(0, d - model_dict['warmup'], step)]
+                  for k in range(0, d - warmup, step)]
+        chunked_sequences = []
+        for feat in feature_sequences:
+            def get_chunk(i, t1, t2):
+                return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
 
-        chunks_durations = np.array([stop - start for _, start, stop in chunks],
-                                    dtype=np.int32)
-        chunked_sequences = [as_chunks(s, chunks, max_time) for s in sequences]
+            chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
+        chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])
+        chunked_sequences = seqtools.collate(chunked_sequences)
 
-        buffers = [np.zeros(shape=(4 * batch_size,) + x.shape,
-                            dtype=x.dtype) for x in next(zip(*chunked_sequences))]
-        buffers.append(np.zeros((4 * batch_size,), dtype=np.int32))
-        minibatch_iterator = chunk_load(
-            chunked_sequences + [chunks_durations], buffers, batch_size,
-            drop_last=False, pad_last=True)
+        # turn into minibatches
+        null_sample = chunked_sequences[0]
+        n_features = len(null_sample)
 
-        chunked_predictions = np.concatenate([
-            predict_batch_fn(*b)
-            for b in minibatch_iterator], axis=0)
+        def collate(b):
+            return [np.array([b[i][c] for i in range(batch_size)])
+                    for c in range(n_features)]
 
-        predictions = from_chunks(chunked_predictions, durations, chunks)
+        minibatches = seqtools.batch(
+            chunked_sequences, batch_size, pad=null_sample, collate_fn=collate)
+        minibatches = seqtools.prefetch(
+            minibatches, nworkers=nworkers, max_buffered=nworkers * 5)
 
-        return predictions
+        # process
+        batched_predictions = seqtools.starmap(predict_batch_fn, minibatches)
+        batched_predictions = seqtools.add_cache(batched_predictions)
+        chunked_predictions = seqtools.unbatch(batched_predictions, batch_size)
+
+        # recompose
+        out = [np.empty((d,) + l_out.output_shape[2:], dtype=np.float32)
+               for d in durations]
+
+        for v, (s, start, stop) in zip(chunked_predictions, chunks):
+            skip = warmup if start > 0 else 0
+            out[s][start + skip:stop] = v[skip:stop - start]
+
+        return out
 
     return predict_fn

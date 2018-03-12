@@ -1,131 +1,136 @@
 #!/usr/bin/env python3
 
 import os
-import pickle as pkl
 import shelve
 from functools import partial
 import logging
+import argparse
+import datetime
+import json
+import time
 
 import numpy as np
 import lasagne
+import seqtools
 from lproc import rmap, subset
 
 from sltools.utils import gloss2seq
-from sltools.models.rnn import build_predict_fn, build_train_fn, seqs2batches
-from sltools.nn_utils import compute_scores, seq_ce_loss, seq_hinge_loss
+from sltools.models.rnn import build_predict_fn, build_train_fn
+from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length
 
 from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
 
 
+# Script arguments ----------------------------------------------------------------------
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument("--name")
+argparser.add_argument("--modality")
+argparser.add_argument("--variant")
+date = datetime.date.today()
+argparser.add_argument("--date",
+                       default="{:02d}{:02d}{:02d}".format(
+                           date.year % 100, date.month, date.day))
+argparser.add_argument("--notes", default="")
+argparser.add_argument("--batch_size")
+argparser.add_argument("--max_time")
+argparser.add_argument("--encoder_kwargs")
+args = argparser.parse_args()
+
+experiment_name = args.name
+modality = args.modality
+variant = args.variant
+date = args.date
+notes = args.notes
+batch_size = int(args.batch_size)
+max_time = int(args.max_time)
+encoder_kwargs = json.loads(args.encoder_kwargs)
+
+
 # Report setting ------------------------------------------------------------------------
 
-model = "rnn"
-modality = "skel"
-variant = "tc7"
-date = "180215"
+report = shelve.open(os.path.join(tmpdir, experiment_name), protocol=-1)
 
-experiment_name = model + "_" + modality + "_" \
-    + (variant + "_" if variant != "" else "") + date
-report = shelve.open(os.path.join(tmpdir, experiment_name),
-                     protocol=pkl.HIGHEST_PROTOCOL)
+report['meta'] = {
+    'model': "hmm",
+    'modality': modality,
+    'variant': variant,
+    'date': date,
+    'notes': notes,
+    'experiment_name': experiment_name
+}
+
+report['args'] = {
+    'batch_size': batch_size,
+    'max_time': max_time,
+    'encoder_kwargs': encoder_kwargs
+}
+
+
 with open(__file__) as f:
     this_script = f.read()
-if "script" in report.keys() and this_script != report["script"]:
-    logging.warning("The script has changed since the previous time")
-    report["script_altered"] = this_script
-else:
-    report["script"] = this_script
+if "script" in report.keys():
+    if report["script"] != this_script:
+        logging.warning("The script has changed since the previous time")
+        report["script_altered"] = this_script
+    else:
+        report["script"] = this_script
 
 
 # Data ----------------------------------------------------------------------------------
 
-if modality == "skel":  # Skeleton end-to-end
+if modality == "skel":
     from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
-    feats_seqs_train = [subset(skel_feat_seqs, train_subset)]
-    feats_seqs_val = [subset(skel_feat_seqs, val_subset)]
-elif modality == "bgr":  # BGR end-to-end
+    feat_seqs = [skel_feat_seqs]
+elif modality == "bgr":
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
-    feats_seqs_train = [subset(bgr_feat_seqs, train_subset)]
-    feats_seqs_val = [subset(bgr_feat_seqs, val_subset)]
-elif modality == "fusion":  # Fusion end-to-end
+    feat_seqs = [bgr_feat_seqs]
+elif modality == "fusion":
     from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
-    feats_seqs_train = [
-        subset(skel_feat_seqs, train_subset),
-        subset(bgr_feat_seqs, train_subset)
-        ]
-    feats_seqs_val = [
-        subset(skel_feat_seqs, val_subset),
-        subset(bgr_feat_seqs, val_subset)
-        ]
-elif modality == "transfer":  # Transfer
-    from experiments.hmmvsrnn_reco.b_preprocess_transfer import transfer_features
-    transfered_feats_seqs = transfer_features(
-        "hmm_skel_180122", "hmm_skel",
-        max_time=128, batch_size=16,
-        encoder_kwargs={'tconv_sz': 17, 'filter_dilation': 1})
-    feats_seqs_train = [subset(transfered_feats_seqs, train_subset)]
-    feats_seqs_val = [subset(transfered_feats_seqs, val_subset)]
-
+    feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
+elif modality == "transfer":
+    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
+    feat_seqs = [transfer_feats(encoder_kwargs['transfer_from'],
+                                encoder_kwargs['freeze_at'])]
 else:
-    raise ValueError
+    raise ValueError()
 
-# Annotations
+feat_seqs_train = [subset(f, train_subset) for f in feat_seqs]
 gloss_seqs_train = subset(gloss_seqs, train_subset)
 durations_train = subset(durations, train_subset)
 targets_train = rmap(lambda g, d: gloss2seq(g, d, 0),
                      gloss_seqs_train, durations_train)
-
+feat_seqs_val = [subset(f, val_subset) for f in feat_seqs]
 gloss_seqs_val = subset(gloss_seqs, val_subset)
 durations_val = subset(durations, val_subset)
 targets_val = rmap(lambda g, d: gloss2seq(g, d, 0),
                    gloss_seqs_val, durations_val)
 
+del feat_seqs, durations, gloss_seqs  # for security
+
+
 # Model ---------------------------------------------------------------------------------
 
 if modality == "skel":  # Skeleton end-to-end
-    from experiments.hmmvsrnn_reco.c_models import skel_lstm
-    model_args = {
-        'batch_size': 16,
-        'max_time': 128,
-        'encoder_kwargs': {'tconv_sz': 7, 'filter_dilation': 1, 'dropout': .1}
-    }
-    model_dict = skel_lstm(feats_shape=skel_feat_seqs[0][0].shape, **model_args)
+    from experiments.hmmvsrnn_reco.c_models import skel_lstm as build_model_fn
 elif modality == "bgr":  # BGR end-to-end
-    from experiments.hmmvsrnn_reco.c_models import bgr_lstm
-    model_args = {
-        'batch_size': 12,
-        'max_time': 128,
-        'encoder_kwargs': {}
-    }
-    model_dict = bgr_lstm(feats_shape=bgr_feat_seqs[0][0].shape, **model_args)
+    from experiments.hmmvsrnn_reco.c_models import bgr_lstm as build_model_fn
 elif modality == "fusion":  # Fusion end-to-end
-    from experiments.hmmvsrnn_reco.c_models import fusion_lstm
-    model_args = {
-        'batch_size': 12,
-        'max_time': 128,
-        'encoder_kwargs': {}
-    }
-    model_dict = fusion_lstm(skel_feats_shape=skel_feat_seqs[0][0].shape,
-                             bgr_feats_shape=bgr_feat_seqs[0][0].shape, **model_args)
+    from experiments.hmmvsrnn_reco.c_models import fusion_lstm as build_model_fn
 elif modality == "transfer":  # Skeleton transfer
-    from experiments.hmmvsrnn_reco.c_models import transfer_lstm
-    model_args = {
-        'batch_size': 16,
-        'max_time': 128,
-        'warmup': (17 * 1) // 2
-    }
-    model_dict = transfer_lstm(
-        feats_shape=transfered_feats_seqs[0][0].shape, **model_args)
+    from experiments.hmmvsrnn_reco.c_models import transfer_lstm as build_model_fn
 else:
     raise ValueError
 
-report['model_args'] = model_args
+model_dict = build_model_fn(
+    *[f[0][0].shape for f in feat_seqs_train],
+    batch_size=batch_size, max_time=max_time,
+    encoder_kwargs=encoder_kwargs)
 
-# Predictor function
-predict_fn = build_predict_fn(
-    model_dict, model_args['batch_size'], model_args['max_time'])
+predict_fn = build_predict_fn(model_dict, batch_size, max_time)
+
 
 # Training ------------------------------------------------------------------------------
 
@@ -133,195 +138,179 @@ weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.
 weights *= 21 / weights.sum()
 loss_fn = partial(seq_ce_loss, weights=weights)
 updates_fn = lasagne.updates.adam
+
+train_batch_fn = build_train_fn(
+    model_dict, max_time, model_dict['warmup'],
+    loss_fn, updates_fn)
+
 save_every = 5
-resume_at = sorted([int(e[6:]) for e in report.keys()
-                    if e.startswith("epoch")
-                    and "params" in report[e].keys()])
-resume_at = -1 if len(resume_at) == 0 else resume_at[-1]
 min_progress = 1e-3  # if improvement is below, decrease learning rate
 l_rate = 1e-3
-train_batch_fn = build_train_fn(
-    model_dict, model_args['max_time'], model_dict['warmup'], loss_fn, updates_fn)
 
-batch_losses = []
-multibatch_losses = np.array([])
+e = 0
 
-for e in range(150):
-    # Resume if possible ----------------------------------------------------------------
 
-    if e < resume_at:
-        print("\repoch {:>5d} : skipped".format(e))
-        continue
+def resume(report_prefix):
+    global min_progress, l_rate, e
 
-    if e == resume_at:
-        print("\repoch {:>5d} : resumed".format(e))
-        epoch_report = report["epoch {:03d}".format(e)]
+    previous = sorted([int(r[len(report_prefix) + 1:]) for r in report.keys()
+                       if r.startswith(report_prefix)
+                       and "params" in report[r].keys()])
+
+    if len(previous) > 0:
+        resume_at = previous[-1]
+        epoch_report = report["{} {:03d}".format(report_prefix, resume_at)]
+        print("\r{} {:>5d} : resumed".format(report_prefix, resume_at))
+
         min_progress *= epoch_report['l_rate'] / l_rate
         l_rate = epoch_report['l_rate']
         params = epoch_report['params']
         all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
         lasagne.layers.set_all_param_values(all_layers, params)
-        continue
+        e = resume_at + 1
 
-    # Train one epoch -------------------------------------------------------------------
 
+def train_one_epoch(report_key):
     batch_losses = []
-    batch_iter = seqs2batches(
-        feats_seqs_train, targets_train,
-        model_args['batch_size'], model_args['max_time'], model_dict['warmup'],
-        shuffle=True, drop_last=True)
-    
-    for i, minibatch in enumerate(batch_iter):
-        last_loss = float(train_batch_fn(*minibatch, l_rate))
-        batch_losses.append(last_loss)
-        if i % 30 == 0:
-            print("\rbatch loss : {:>7.4f}".format(last_loss), end='', flush=True)
+    step = max_time - 2 * model_dict['warmup']
 
-    # Generate report -------------------------------------------------------------------
+    # turn sequences into chunks
+    chunks = [(i, k, min(d, k + max_time))
+              for i, d in enumerate(durations_train)
+              for k in range(0, d - model_dict['warmup'], step)]
+    chunked_sequences = []
+    for feat in feat_seqs_train:
+        def get_chunk(i, t1, t2):
+            return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
 
-    multibatch_losses = np.concatenate((multibatch_losses, np.asarray(batch_losses)))
-    running_loss = batch_losses[0]
-    for i in range(1, len(batch_losses)):
-        running_loss = .99 * running_loss + .01 * batch_losses[i]
-    print("\repoch {:>5d} loss : {:2.4f}       ".format(e + 1, running_loss))
+        chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
+    chunked_sequences.append(seqtools.starmap(
+        lambda i, t1, t2: adjust_length(targets_train[i][t1:t2], max_time, pad=-1),
+        chunks))
+    chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])
+    chunked_sequences = seqtools.collate(chunked_sequences)
 
-    epoch_report = {
+    perm = np.random.permutation(len(chunked_sequences))
+    chunked_sequences = seqtools.gather(chunked_sequences, perm)
+
+    # turn into minibatches
+    null_sample = chunked_sequences[0]
+    n_features = len(null_sample)
+
+    def collate(b_):
+        return [np.array([b_[i][c] for i in range(batch_size)])
+                for c in range(n_features)]
+
+    # todo: shuffle
+    minibatches = seqtools.batch(
+        chunked_sequences, batch_size, drop_last=True,
+        collate_fn=collate)
+    minibatches = seqtools.prefetch(
+        minibatches, nworkers=2, max_buffered=10)
+
+    # train
+    t = time.time()
+    running_loss = np.log(20)
+    for b in minibatches:
+        loss = train_batch_fn(*b, l_rate)
+        batch_losses.append(loss)
+        running_loss = .99 * running_loss + .01 * loss
+        if time.time() - t > 1:
+            print("\rbatch loss : {:>2.4f}".format(running_loss), end='', flush=True)
+            t = time.time()
+
+    print()
+
+    # report
+    report[report_key] = {
         'batch_losses': batch_losses,
         'epoch_loss': running_loss,
         'l_rate': l_rate
     }
 
-    if (e + 1) % save_every == 0:
-        predictions = [np.argmax(p, axis=1) for p in predict_fn(feats_seqs_train)]
-        j, p, c = compute_scores(predictions, targets_train, vocabulary)
-        predictions = [np.argmax(p, axis=1) for p in predict_fn(feats_seqs_val)]
-        jv, pv, cv = compute_scores(predictions, targets_val, vocabulary)
-        epoch_report['train_scores'] = \
-            {'jaccard': j, 'framewise': p, 'confusion': c}
-        epoch_report['val_scores'] = \
-            {'jaccard': jv, 'framewise': pv, 'confusion': cv}
 
-        print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
+def extra_report(report_key):
+    epoch_report = report[report_key]
+    predictions = [np.argmax(p, axis=1) for p in predict_fn(feat_seqs_train)]
+    j, p, c = compute_scores(predictions, targets_train, vocabulary)
+    predictions = [np.argmax(p, axis=1) for p in predict_fn(feat_seqs_val)]
+    jv, pv, cv = compute_scores(predictions, targets_val, vocabulary)
+    epoch_report['train_scores'] = \
+        {'jaccard': j, 'framewise': p, 'confusion': c}
+    epoch_report['val_scores'] = \
+        {'jaccard': jv, 'framewise': pv, 'confusion': cv}
 
-        all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
-        params = lasagne.layers.get_all_param_values(all_layers)
-        epoch_report['params'] = params
+    print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
 
-        # Update learning rate ----------------------------------------------------------
+    all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
+    params = lasagne.layers.get_all_param_values(all_layers)
+    epoch_report['params'] = params
 
-        b = np.cov(multibatch_losses, np.arange(len(multibatch_losses)))[1, 0] \
-            / np.var(np.arange(len(multibatch_losses)))
-        print('progress ~= {}'.format(b * len(multibatch_losses)))
-        if b * len(multibatch_losses) > - min_progress:
-            print("decreasing learning rate: {} -> {}".format(l_rate, l_rate * .3))
-            l_rate *= .3
-            min_progress *= .3
-        multibatch_losses = np.array([])
-
-    report["epoch {:03d}".format(e)] = epoch_report
+    report[report_key] = epoch_report
     report.sync()
+
+
+def update_setup(epoch_prefix):
+    global l_rate, min_progress
+
+    # Compute average loss progress by epoch over the last 10 epochs (linear reg)
+    last_reports = sorted(k for k in report.keys() if k.startswith(epoch_prefix))[-10:]
+    multibatch_losses = np.concatenate([report[k]["batch_losses"] for k in last_reports])
+    avg_progress = np.cov(multibatch_losses, np.arange(len(multibatch_losses)))[1, 0] \
+        / np.var(np.arange(len(multibatch_losses))) \
+        * len(multibatch_losses) / len(last_reports)
+
+    print('   progress ~ {:.4e}'.format(avg_progress))
+    if avg_progress > - min_progress:
+        print("decreasing learning rate: {} -> {}".format(l_rate, l_rate * .3))
+        l_rate *= .3
+        min_progress *= .3
+
+
+resume("epoch")
+
+while e < 150:
+    train_one_epoch("epoch {:04d}".format(e))
+    if (e + 1 % 5) == 0:
+        extra_report("epoch {:04d}".format(e))
+    update_setup("epoch")
+    e += 1
 
 
 # fine tune -----------------------------------------------------------------------------
 
-best_epoch = sorted([(r['val_scores']['jaccard'], e)
-                     for e, r in report.items()
-                     if e.startswith("epoch")
-                     and "params" in r.keys()])[-1][1]
-print("fine-tuning from: {}".format(best_epoch))
-epoch_report = report[best_epoch]
-lasagne.layers.set_all_param_values(
-    model_dict['l_linout'],
-    epoch_report['params'])
-
-weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
-weights *= 21 / weights.sum()
-loss_fn = partial(seq_hinge_loss, delta=.3, weights=weights)
-updates_fn = lasagne.updates.adam
-save_every = 5
-resume_at = sorted([int(e[9:]) for e in report.keys()
-                    if e.startswith("finetune")
-                    and "params" in report[e].keys()])
-resume_at = -1 if len(resume_at) == 0 else resume_at[-1]
-l_rate = 1e-5
-min_progress = 1e-5
-train_batch_fn = build_train_fn(
-    model_dict, model_args['max_time'], model_dict['warmup'], loss_fn, updates_fn)
-
-multibatch_losses = np.array([])
-batch_losses = []
-
-for e in range(20):
-    # Resume if possible --------------------------------------------------------------
-
-    if e < resume_at:
-        print("\repoch {:>5d} : skipped".format(e))
-        continue
-
-    if e == resume_at:
-        print("\repoch {:>5d} : resumed".format(e))
-        epoch_report = report["epoch {:03d}".format(e)]
-        min_progress *= epoch_report['l_rate'] / l_rate
-        l_rate = epoch_report['l_rate']
-        params = epoch_report['params']
-        all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
-        lasagne.layers.set_all_param_values(all_layers, params)
-        continue
-
-    # Train one epoch -----------------------------------------------------------------
-
-    batch_losses = []
-    batch_iter = seqs2batches(
-        feats_seqs_train, targets_train,
-        model_args['batch_size'], model_args['max_time'], model_dict['warmup'],
-        shuffle=True, drop_last=True)
-
-    for i, minibatch in enumerate(batch_iter):
-        last_loss = float(train_batch_fn(*minibatch, l_rate))
-        batch_losses.append(last_loss)
-        if i % 30 == 0:
-            print("\rbatch loss : {:>7.4f}".format(last_loss), end='', flush=True)
-
-    # Generate report -----------------------------------------------------------------
-
-    multibatch_losses = np.concatenate((multibatch_losses, np.asarray(batch_losses)))
-    running_loss = batch_losses[0]
-    for i in range(1, len(batch_losses)):
-        running_loss = .99 * running_loss + .01 * batch_losses[i]
-    print("\repoch {:>5d} loss : {:2.4f}       ".format(e + 1, running_loss))
-
-    epoch_report = {
-        'batch_losses': batch_losses,
-        'epoch_loss': running_loss,
-        'l_rate': l_rate
-    }
-
-    if (e + 1) % save_every == 0:
-        predictions = [np.argmax(p, axis=1) for p in predict_fn(feats_seqs_train)]
-        j, p, c = compute_scores(predictions, targets_train, vocabulary)
-        predictions = [np.argmax(p, axis=1) for p in predict_fn(feats_seqs_val)]
-        jv, pv, cv = compute_scores(predictions, targets_val, vocabulary)
-        epoch_report['train_scores'] = \
-            {'jaccard': j, 'framewise': p, 'confusion': c}
-        epoch_report['val_scores'] = \
-            {'jaccard': jv, 'framewise': pv, 'confusion': cv}
-
-        print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
-
-        all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
-        params = lasagne.layers.get_all_param_values(all_layers)
-        epoch_report['params'] = params
-
-        # Update learning rate --------------------------------------------------------
-
-        b = np.cov(multibatch_losses, np.arange(len(multibatch_losses)))[1, 0] \
-            / np.var(np.arange(len(multibatch_losses)))
-        print('progress ~= {}'.format(b * len(multibatch_losses)))
-        if b * len(multibatch_losses) > - min_progress:
-            print("decreasing learning rate: {} -> {}".format(l_rate, l_rate * .3))
-            l_rate *= .3
-            min_progress *= .3
-        multibatch_losses = np.array([])
-
-    report["finetune {:03d}".format(e)] = epoch_report
-    report.sync()
+# def setup_finetune():
+#     global train_batch_fn, save_every, min_progress, l_rate
+#
+#     weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
+#     weights *= 21 / weights.sum()
+#     loss_fn = partial(seq_hinge_loss, weights=weights)
+#     updates_fn = lasagne.updates.adam
+#
+#     train_batch_fn = build_train_fn(
+#         model_dict, model_args['max_time'], model_dict['warmup'], loss_fn, updates_fn)
+#
+#     save_every = 5
+#     min_progress = 1e-5
+#     l_rate = 1e-5
+#
+#     best_epoch = sorted([(r['val_scores']['jaccard'], e_)
+#                          for e_, r in report.items()
+#                          if e_.startswith("epoch")
+#                          and "params" in r.keys()])[-1][1]
+#     print("fine-tuning from: {}".format(best_epoch))
+#     epoch_report = report[best_epoch]
+#     lasagne.layers.set_all_param_values(
+#         model_dict['l_linout'],
+#         epoch_report['params'])
+#
+#
+# setup_finetune()
+#
+# resume("finetune")
+#
+# while e < 170:
+#     train_one_epoch("finetune")
+#     extra_report("finetune")
+#     update_setup("finetune")
+#     e += 1

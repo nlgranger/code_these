@@ -1,3 +1,5 @@
+import os
+import shelve
 import numpy as np
 import lasagne
 from lasagne.layers import Conv2DLayer, NonlinearityLayer, \
@@ -6,7 +8,7 @@ from lasagne.nonlinearities import rectify, leaky_rectify
 import theano.tensor as T
 from lproc import SerializableFunc
 
-from sltools.nn_utils import DurationMaskLayer
+from sltools.nn_utils import DurationMaskLayer, log_softmax
 from sltools.tconv import TemporalConv
 from sltools.modrop import modrop
 
@@ -107,7 +109,7 @@ def wide_resnet(l_in, d, k, dropout=0.):
 
 
 @SerializableFunc
-def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
+def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters=128, dropout=0.1):
     warmup = (tconv_sz * filter_dilation) // 2
 
     l1 = lasagne.layers.DenseLayer(
@@ -128,7 +130,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
 
     d2 = DropoutLayer(l2, p=dropout)
 
-    l3 = TemporalConv(d2, num_filters=128, filter_size=tconv_sz,
+    l3 = TemporalConv(d2, num_filters=num_tc_filters, filter_size=tconv_sz,
                       filter_dilation=filter_dilation, pad='same',
                       conv_type='regular',
                       nonlinearity=None)
@@ -142,7 +144,7 @@ def skel_encoder(l_in, dropout=0.3, tconv_sz=17, filter_dilation=1):
 
 
 @SerializableFunc
-def bgr_encoder(l_in, dropout=0., tconv_sz=17, filter_dilation=1):
+def bgr_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters=128, dropout=0.1):
     warmup = (tconv_sz * filter_dilation) // 2
     batch_size, max_time, _, *crop_size = l_in.output_shape
     crop_size = tuple(crop_size)
@@ -151,7 +153,7 @@ def bgr_encoder(l_in, dropout=0., tconv_sz=17, filter_dilation=1):
     l_r1 = ReshapeLayer(l_in, (-1, 1) + crop_size)
 
     # process through (siamese) CNN
-    l_cnnout = wide_resnet(l_r1, d=16, k=1, dropout=dropout)
+    l_cnnout = wide_resnet(l_r1, d=16, k=1, dropout=0)  # TODO is dropout=0 ok?
 
     # Concatenate feature vectors from the pairs
     feat_shape = np.asscalar(np.prod(l_cnnout.output_shape[1:]))
@@ -159,9 +161,9 @@ def bgr_encoder(l_in, dropout=0., tconv_sz=17, filter_dilation=1):
 
     l_drop1 = DropoutLayer(l_feats, p=dropout)
 
-    l_out = TemporalConv(l_drop1, num_filters=2 * feat_shape, filter_size=tconv_sz,
+    l_out = TemporalConv(l_drop1, num_filters=num_tc_filters, filter_size=tconv_sz,
                          filter_dilation=filter_dilation, pad='same',
-                         conv_type='match',
+                         conv_type='regular',
                          nonlinearity=None)
     l_out = BatchNormLayer(l_out, axes=(0, 1))
     l_out = NonlinearityLayer(l_out, leaky_rectify)
@@ -191,11 +193,146 @@ def fusion_encoder(l_in_skel, l_in_zmaps, **kwargs):
 
 
 @SerializableFunc
-def identity_encoder(l_in, warmup):
-    return {
-        'l_out': l_in,
-        'warmup': warmup,
-    }
+def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
+    from experiments.hmmvsrnn_reco.a_data import tmpdir
+    from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn
+
+    report = shelve.open(os.path.join(tmpdir, transfer_from))
+
+    if report['meta']['model'] == "hmm":
+        # pretrained model
+        _, recognizer, _ = reload_best_hmm(report)
+        posterior = recognizer.posterior
+        layers = lasagne.layers.get_all_layers(posterior.l_out)
+
+        if freeze_at == "inputs":
+            # build model
+            if report['meta']['modality'] == 'skel':
+                encoder_dict = skel_encoder(l_in, **report['encoder_kwargs'])
+            elif report['meta']['modality'] == 'bgr':
+                encoder_dict = bgr_encoder(l_in, **report['encoder_kwargs'])
+            elif report['meta']['modality'] == 'fusion':
+                encoder_dict = fusion_encoder(l_in, **report['encoder_kwargs'])
+            else:
+                raise ValueError()
+
+            l_embedding = encoder_dict['l_out']
+
+            if l_in[0].output_shape[2] != posterior.nstates:
+                l_logits = lasagne.layers.DenseLayer(
+                    l_in[0], posterior.nstates, num_leading_axes=2, nonlinearity=None)
+            else:
+                l_logits = l_embedding
+
+            l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, log_softmax)
+
+            # load parameters
+            params = lasagne.layers.get_all_param_values(layers)
+            new_layers = lasagne.layers.get_all_layers(l_posteriors)
+            lasagne.layers.set_all_param_values(new_layers, params)
+
+            if terminate_at == "embedding":
+                return {'l_out': l_embedding, 'warmup': encoder_dict['warmup']}
+            elif terminate_at == "logits":
+                return {'l_out': l_logits, 'warmup': encoder_dict['warmup']}
+            if terminate_at == "posteriors":
+                return {'l_out': l_posteriors, 'warmup': encoder_dict['warmup']}
+            else:
+                raise ValueError()
+
+        elif freeze_at == "embeddings":
+            # build model
+            l_embedding = l_in[0]
+
+            if l_in[0].output_shape[2] != posterior.nstates:
+                l_logits = lasagne.layers.DenseLayer(
+                    l_in[0], posterior.nstates, num_leading_axes=2, nonlinearity=None)
+            else:
+                l_logits = l_embedding
+
+            l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, log_softmax)
+
+            # load parameters
+            params = lasagne.layers.get_all_param_values(
+                layers[layers.index(posterior.l_feats) + 1:])
+            new_layers = [l_logits, l_posteriors]
+            lasagne.layers.set_all_param_values(new_layers, params)
+
+            if terminate_at == "embedding":
+                return {'l_out': l_embedding, 'warmup': 0}
+            elif terminate_at == "logits":
+                return {'l_out': l_logits, 'warmup': 0}
+            if terminate_at == "posteriors":
+                return {'l_out': l_posteriors, 'warmup': 0}
+            else:
+                raise ValueError()
+
+        elif freeze_at == "logits":
+            # build model
+            l_logits = l_in[0]
+
+            l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, log_softmax)
+
+            # load parameters
+            params = lasagne.layers.get_all_param_values(
+                layers[layers.index(posterior.l_raw) + 1:])
+            new_layers = [l_logits, l_posteriors]
+            lasagne.layers.set_all_param_values(new_layers, params)
+
+            if terminate_at == "logits":
+                return {'l_out': l_logits, 'warmup': 0}
+            if terminate_at == "posteriors":
+                return {'l_out': l_posteriors, 'warmup': 0}
+            else:
+                raise ValueError()
+
+        elif freeze_at == "logits":
+            l_posteriors = l_in[0]
+
+            if terminate_at == "posteriors":
+                return {'l_out': l_posteriors, 'warmup': 0}
+            else:
+                raise ValueError()
+
+        else:
+            raise ValueError
+
+    elif report['meta']['model'] == "rnn":
+        # pretrained model
+        _, recognizer, _ = reload_best_rnn(report)
+        layers = lasagne.layers.get_all_layers(recognizer["l_feats"])
+
+        if freeze_at == "inputs":
+            # build model
+            if report['meta']['modality'] == 'skel':
+                encoder_dict = skel_encoder(l_in, **report['encoder_kwargs'])
+            elif report['meta']['modality'] == 'bgr':
+                encoder_dict = bgr_encoder(l_in, **report['encoder_kwargs'])
+            elif report['meta']['modality'] == 'fusion':
+                encoder_dict = fusion_encoder(l_in, **report['encoder_kwargs'])
+            else:
+                raise ValueError()
+
+            l_embedding = encoder_dict['l_out']
+
+            # load parameters
+            params = lasagne.layers.get_all_param_values(layers)
+            new_layers = lasagne.layers.get_all_layers(l_embedding)
+            lasagne.layers.set_all_param_values(new_layers, params)
+
+            if terminate_at == "embedding":
+                return {'l_out': l_embedding, 'warmup': encoder_dict['warmup']}
+            else:
+                raise ValueError()
+
+        elif freeze_at == "embedding":
+            return l_in[0]
+
+        else:
+            raise ValueError()
+
+    else:
+        raise ValueError()
 
 
 # ---------------------------------------------------------------------------------------
@@ -339,12 +476,13 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
 
 
 @SerializableFunc
-def transfer_lstm(feats_shape, batch_size=6, max_time=64, warmup=0):
+def transfer_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
+    encoder_kwargs = encoder_kwargs or {}
     n_lstm_units = 172
 
     l_in = lasagne.layers.InputLayer(
         shape=(batch_size, max_time) + feats_shape, name="l_in")
-    encoder_data = identity_encoder(l_in, warmup)
+    encoder_data = transfer_encoder(l_in, **encoder_kwargs)
     l_feats = encoder_data['l_out']
     warmup = encoder_data['warmup']
 

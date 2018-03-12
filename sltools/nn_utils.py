@@ -1,6 +1,5 @@
 import logging
 import numpy as np
-from lproc import rmap
 from theano import tensor as T
 import lasagne
 from lasagne.layers import Layer
@@ -98,7 +97,7 @@ def compute_scores(predictions, targets, vocabulary):
 
 class DurationMaskLayer(Layer):
     def __init__(self, incoming, max_time, batch_axis=0, **kwargs):
-        super(DurationMaskLayer, self).__init__(incoming, **kwargs)
+        super().__init__(incoming, **kwargs)
         self.batch_axis = batch_axis
         self.max_time = max_time
 
@@ -109,27 +108,16 @@ class DurationMaskLayer(Layer):
         return input_shape[0], self.max_time
 
 
-def adjust_length(seq, size, axis=0, pad_value=0):
+def adjust_length(seq, size, axis=0, pad=0):
+    # cut too long sequence
+    seq = seq[[slice(None)] * axis + [slice(size)]]
+
+    # pad too short sequence
     pad_shape = \
         seq.shape[:axis] \
         + (max(0, size - seq.shape[axis]),) \
         + seq.shape[axis + 1:]
-    pad = np.full(pad_shape, pad_value, dtype=seq.dtype)
+    pad_value = np.full(pad_shape, pad, dtype=seq.dtype)
+    seq = np.concatenate((seq, pad_value), axis=axis)
 
-    items = [slice(None)] * axis + [slice(size)]
-
-    return np.concatenate((seq[items], pad), axis=axis)
-
-
-def as_chunks(sequence, chunks, max_time):
-    return rmap(lambda c: adjust_length(sequence[c[0]][c[1]:c[2]], max_time),
-                chunks)
-
-
-def from_chunks(values, durations, chunks):
-    result = [np.empty((d,) + values[0].shape[1:], dtype=values[0].dtype)
-              for d in durations]
-    for v, (s, start, stop) in zip(values, chunks):
-        result[s][start:stop] = v[:stop - start]
-
-    return result
+    return seq

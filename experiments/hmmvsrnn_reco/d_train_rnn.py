@@ -33,8 +33,8 @@ argparser.add_argument("--date",
                        default="{:02d}{:02d}{:02d}".format(
                            date.year % 100, date.month, date.day))
 argparser.add_argument("--notes", default="")
-argparser.add_argument("--batch_size")
-argparser.add_argument("--max_time")
+argparser.add_argument("--batch_size", type=int)
+argparser.add_argument("--max_time", type=int)
 argparser.add_argument("--encoder_kwargs")
 args = argparser.parse_args()
 
@@ -43,8 +43,8 @@ modality = args.modality
 variant = args.variant
 date = args.date
 notes = args.notes
-batch_size = int(args.batch_size)
-max_time = int(args.max_time)
+batch_size = args.batch_size
+max_time = args.max_time
 encoder_kwargs = json.loads(args.encoder_kwargs)
 
 
@@ -53,7 +53,7 @@ encoder_kwargs = json.loads(args.encoder_kwargs)
 report = shelve.open(os.path.join(tmpdir, experiment_name), protocol=-1)
 
 report['meta'] = {
-    'model': "hmm",
+    'model': "rnn",
     'modality': modality,
     'variant': variant,
     'date': date,
@@ -92,8 +92,8 @@ elif modality == "fusion":
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
     from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
-    feat_seqs = [transfer_feats(encoder_kwargs['transfer_from'],
-                                encoder_kwargs['freeze_at'])]
+    feat_seqs = transfer_feats(encoder_kwargs['transfer_from'],
+                               encoder_kwargs['freeze_at'])
 else:
     raise ValueError()
 
@@ -159,8 +159,8 @@ def resume(report_prefix):
 
     if len(previous) > 0:
         resume_at = previous[-1]
-        epoch_report = report["{} {:03d}".format(report_prefix, resume_at)]
-        print("\r{} {:>5d} : resumed".format(report_prefix, resume_at))
+        epoch_report = report["{} {:04d}".format(report_prefix, resume_at)]
+        print("\r{} {:>4d} : resumed".format(report_prefix, resume_at))
 
         min_progress *= epoch_report['l_rate'] / l_rate
         l_rate = epoch_report['l_rate']
@@ -240,7 +240,7 @@ def extra_report(report_key):
     epoch_report['val_scores'] = \
         {'jaccard': jv, 'framewise': pv, 'confusion': cv}
 
-    print("scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
+    print("    scores: {:0.4f}, {:0.4f}, {:0.4f}, {:0.4f}".format(j, p, jv, pv))
 
     all_layers = lasagne.layers.get_all_layers(model_dict['l_linout'])
     params = lasagne.layers.get_all_param_values(all_layers)
@@ -271,7 +271,7 @@ resume("epoch")
 
 while e < 150:
     train_one_epoch("epoch {:04d}".format(e))
-    if (e + 1 % 5) == 0:
+    if (e + 1) % 5 == 0:
         extra_report("epoch {:04d}".format(e))
     update_setup("epoch")
     e += 1

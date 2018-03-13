@@ -150,6 +150,19 @@ def transfer_feats(transfer_from, freeze_at):
 
     report = shelve.open(os.path.join(tmpdir, transfer_from))
 
+    # no computation required
+    if freeze_at == "inputs":
+        return autoreload_feats(report['meta']['modality'])
+
+    # reuse cached features
+    dump_file = os.path.join(tmpdir, report['meta']['name']
+                             + "_" + freeze_at + "feats.npy")
+    if os.path.exists(dump_file):
+        boundaries = np.stack((np.cumsum(durations) - durations,
+                               np.cumsum(durations)), axis=1)
+        return [split_seq(np.load(dump_file, mmap_mode='r'), boundaries)]
+
+    # reload model
     if report['meta']['model'] == "hmm":
         _, recognizer, _ = reload_best_hmm(report)
         l_in = recognizer.posterior.l_in
@@ -161,14 +174,14 @@ def transfer_feats(transfer_from, freeze_at):
             l_feats = lasagne.layers.NonlinearityLayer(recognizer.l_out, T.exp)
         else:
             raise ValueError()
-        batch_size, max_time = l_in[0].input_shape  # TODO: fragile
+        batch_size, max_time, *_ = l_in[0].output_shape  # TODO: fragile
         warmup = recognizer.posterior.warmup
 
     else:
         _, model_dict, _ = reload_best_rnn(report)
         l_in = model_dict['l_in']
         l_feats = model_dict['l_feats']
-        batch_size, max_time = l_in[0].input_shape  # TODO: fragile
+        batch_size, max_time, *_ = l_in[0].output_shape  # TODO: fragile
         warmup = model_dict['warmup']
 
     feats_var = lasagne.layers.get_output(l_feats)
@@ -186,7 +199,6 @@ def transfer_feats(transfer_from, freeze_at):
             return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
 
         chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
-    chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])
     chunked_sequences = seqtools.collate(chunked_sequences)
 
     # turn into minibatches
@@ -214,7 +226,10 @@ def transfer_feats(transfer_from, freeze_at):
         skip = warmup if start > 0 else 0
         out[s][start + skip:stop] = v[skip:stop - start]
 
-    return out
+    # save cache
+    np.save(dump_file, np.concatenate(out))
+
+    return [out]
 
 
 # ---------------------------------------------------------------------------------------

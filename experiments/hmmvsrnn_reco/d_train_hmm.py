@@ -5,11 +5,11 @@ import datetime
 import logging
 import shelve
 import json
-from copy import deepcopy
 from functools import partial
 import argparse
 import numpy as np
 from lproc import rmap, subset
+from copy import deepcopy
 
 from sltools.utils import gloss2seq
 from sltools.models import HMMRecognizer, PosteriorModel, hmm_perfs
@@ -88,8 +88,8 @@ elif modality == "fusion":
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
     from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
-    feat_seqs = [transfer_feats(encoder_kwargs['transfer_from'],
-                                encoder_kwargs['freeze_at'])]
+    feat_seqs = transfer_feats(encoder_kwargs['transfer_from'],
+                               encoder_kwargs['freeze_at'])
 else:
     raise ValueError()
 
@@ -131,10 +131,8 @@ recognizer = HMMRecognizer(chains_lengths, posterior, vocabulary)
 
 # Run training iterations ---------------------------------------------------------------
 
-resume_at = sorted([int(e[6:]) for e in report.keys()
-                    if e.startswith("epoch")
-                    and "params" in report[e].keys()])
-resume_at = -1 if len(resume_at) == 0 else resume_at[-1]
+resume_at = sorted(e for e in report.keys() if e.startswith("epoch"))
+resume_at = "" if len(resume_at) == 0 else resume_at[-1]
 
 # Posterior training settings
 l_rate = .001
@@ -152,13 +150,13 @@ for i in range(len(epoch_schedule)):
     print("# It. {} -----------------------------------------------------".format(i))
 
     # Resume interrupted training
-    if i < resume_at:
+    if "epoch {:>5d}".format(i) < resume_at:
         print("Skipping")
         continue
-    elif i == resume_at:
+    elif "epoch {:>5d}".format(i) == resume_at:
         print("reloading from partial training")
-        recognizer = report[str(i)]['model']
-        fit_settings = report[str(i)]['fit_settings']
+        recognizer = report[resume_at]['model']
+        fit_settings = report[resume_at]['fit_settings']
         chains_lengths = fit_settings['chains_lengths']
         l_rate = fit_settings['l_rate']
         updates = fit_settings['updates']

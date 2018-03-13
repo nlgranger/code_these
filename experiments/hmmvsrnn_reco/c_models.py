@@ -193,7 +193,7 @@ def fusion_encoder(l_in_skel, l_in_zmaps, **kwargs):
 
 
 @SerializableFunc
-def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
+def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
     from experiments.hmmvsrnn_reco.a_data import tmpdir
     from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn
 
@@ -208,11 +208,11 @@ def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
         if freeze_at == "inputs":
             # build model
             if report['meta']['modality'] == 'skel':
-                encoder_dict = skel_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = skel_encoder(*l_in, **report['args']['encoder_kwargs'])
             elif report['meta']['modality'] == 'bgr':
-                encoder_dict = bgr_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = bgr_encoder(*l_in, **report['args']['encoder_kwargs'])
             elif report['meta']['modality'] == 'fusion':
-                encoder_dict = fusion_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = fusion_encoder(*l_in, **report['args']['encoder_kwargs'])
             else:
                 raise ValueError()
 
@@ -259,7 +259,7 @@ def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
             lasagne.layers.set_all_param_values(new_layers, params)
 
             if terminate_at == "embedding":
-                return {'l_out': l_embedding, 'warmup': 0}
+                return {'l_out': l_embedding, 'warmup': 0}  # todo: check warmup
             elif terminate_at == "logits":
                 return {'l_out': l_logits, 'warmup': 0}
             if terminate_at == "posteriors":
@@ -305,11 +305,11 @@ def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
         if freeze_at == "inputs":
             # build model
             if report['meta']['modality'] == 'skel':
-                encoder_dict = skel_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = skel_encoder(*l_in, **report['args']['encoder_kwargs'])
             elif report['meta']['modality'] == 'bgr':
-                encoder_dict = bgr_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = bgr_encoder(*l_in, **report['args']['encoder_kwargs'])
             elif report['meta']['modality'] == 'fusion':
-                encoder_dict = fusion_encoder(l_in, **report['encoder_kwargs'])
+                encoder_dict = fusion_encoder(*l_in, **report['args']['encoder_kwargs'])
             else:
                 raise ValueError()
 
@@ -326,7 +326,7 @@ def transfer_encoder(l_in, transfer_from, freeze_at, terminate_at):
                 raise ValueError()
 
         elif freeze_at == "embedding":
-            return l_in[0]
+            return {'l_out': l_in[0], 'warmup': 0}
 
         else:
             raise ValueError()
@@ -476,13 +476,13 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
 
 
 @SerializableFunc
-def transfer_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
+def transfer_lstm(*feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
     n_lstm_units = 172
 
-    l_in = lasagne.layers.InputLayer(
-        shape=(batch_size, max_time) + feats_shape, name="l_in")
-    encoder_data = transfer_encoder(l_in, **encoder_kwargs)
+    l_in = [lasagne.layers.InputLayer(shape=(batch_size, max_time) + s)
+            for s in feats_shape]
+    encoder_data = transfer_encoder(*l_in, **encoder_kwargs)
     l_feats = encoder_data['l_out']
     warmup = encoder_data['warmup']
 
@@ -510,7 +510,7 @@ def transfer_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         name="l_linout")
 
     return {
-        'l_in': [l_in],
+        'l_in': l_in,
         'l_duration': l_duration,
         'l_mask': l_mask,
         'l_linout': l_linout,

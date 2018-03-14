@@ -155,7 +155,7 @@ def transfer_feats(transfer_from, freeze_at):
         return autoreload_feats(report['meta']['modality'])
 
     # reuse cached features
-    dump_file = os.path.join(tmpdir, report['meta']['name']
+    dump_file = os.path.join(tmpdir, report['meta']['experiment_name']
                              + "_" + freeze_at + "feats.npy")
     if os.path.exists(dump_file):
         boundaries = np.stack((np.cumsum(durations) - durations,
@@ -167,11 +167,11 @@ def transfer_feats(transfer_from, freeze_at):
         _, recognizer, _ = reload_best_hmm(report)
         l_in = recognizer.posterior.l_in
         if freeze_at == "embedding":
-            l_feats = recognizer.l_feats
+            l_feats = recognizer.posterior.l_feats
         elif freeze_at == "logits":
-            l_feats = recognizer.l_raw
+            l_feats = recognizer.posterior.l_raw
         elif freeze_at == "posteriors":
-            l_feats = lasagne.layers.NonlinearityLayer(recognizer.l_out, T.exp)
+            l_feats = lasagne.layers.NonlinearityLayer(recognizer.posterior.l_out, T.exp)
         else:
             raise ValueError()
         batch_size, max_time, *_ = l_in[0].output_shape  # TODO: fragile

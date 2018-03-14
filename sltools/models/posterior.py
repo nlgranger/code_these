@@ -20,6 +20,7 @@ class PosteriorModel:
         self.input_vars = None
         self.l_in = None
         self.l_feats = None
+        self.l_raw = None
         self.l_out = None
         self.warmup = None
         self._forward = None

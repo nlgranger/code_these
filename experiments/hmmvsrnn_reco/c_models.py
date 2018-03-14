@@ -218,9 +218,10 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
 
             l_embedding = encoder_dict['l_out']
 
-            if l_in[0].output_shape[2] != posterior.nstates:
+            if l_embedding.output_shape[2] != posterior.nstates:
                 l_logits = lasagne.layers.DenseLayer(
-                    l_in[0], posterior.nstates, num_leading_axes=2, nonlinearity=None)
+                    l_embedding, posterior.nstates,
+                    num_leading_axes=2, nonlinearity=None)
             else:
                 l_logits = l_embedding
 
@@ -240,21 +241,23 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
             else:
                 raise ValueError()
 
-        elif freeze_at == "embeddings":
+        elif freeze_at == "embedding":
             # build model
             l_embedding = l_in[0]
 
-            if l_in[0].output_shape[2] != posterior.nstates:
+            if l_embedding.output_shape[2] != posterior.nstates:
                 l_logits = lasagne.layers.DenseLayer(
-                    l_in[0], posterior.nstates, num_leading_axes=2, nonlinearity=None)
+                    l_embedding, posterior.nstates,
+                    num_leading_axes=2, nonlinearity=None)
             else:
                 l_logits = l_embedding
 
             l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, log_softmax)
 
             # load parameters
-            params = lasagne.layers.get_all_param_values(
-                layers[layers.index(posterior.l_feats) + 1:])
+            params = lasagne.layers.get_all_param_values(layers)
+            params = params[len(lasagne.layers.get_all_params(posterior.l_feats)):]
+
             new_layers = [l_logits, l_posteriors]
             lasagne.layers.set_all_param_values(new_layers, params)
 
@@ -273,12 +276,6 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
 
             l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, log_softmax)
 
-            # load parameters
-            params = lasagne.layers.get_all_param_values(
-                layers[layers.index(posterior.l_raw) + 1:])
-            new_layers = [l_logits, l_posteriors]
-            lasagne.layers.set_all_param_values(new_layers, params)
-
             if terminate_at == "logits":
                 return {'l_out': l_logits, 'warmup': 0}
             if terminate_at == "posteriors":
@@ -286,7 +283,7 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
             else:
                 raise ValueError()
 
-        elif freeze_at == "logits":
+        elif freeze_at == "posteriors":
             l_posteriors = l_in[0]
 
             if terminate_at == "posteriors":
@@ -376,7 +373,6 @@ def skel_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         'l_duration': l_duration,
         'l_mask': l_mask,
         'l_linout': l_linout,
-        # 'l_out': l_lstm,
         'warmup': warmup,
         'l_feats': l_feats
     }
@@ -421,7 +417,6 @@ def bgr_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         'l_duration': l_duration,
         'l_mask': l_mask,
         'l_linout': l_linout,
-        # 'l_out': l_lstm,
         'warmup': warmup,
         'l_feats': l_feats
     }
@@ -469,7 +464,6 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
         'l_mask': l_mask,
         'l_duration': l_duration,
         'l_linout': l_linout,
-        # 'l_out': l_lstm,
         'warmup': warmup,
         'l_feats': l_feats
     }
@@ -514,7 +508,6 @@ def transfer_lstm(*feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         'l_duration': l_duration,
         'l_mask': l_mask,
         'l_linout': l_linout,
-        # 'l_out': l_lstm,
         'warmup': warmup,
         'l_feats': l_feats
     }

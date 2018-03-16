@@ -109,7 +109,7 @@ def wide_resnet(l_in, d, k, dropout=0.):
 
 
 @SerializableFunc
-def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters=128, dropout=0.1):
+def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     warmup = (tconv_sz * filter_dilation) // 2
 
     l1 = lasagne.layers.DenseLayer(

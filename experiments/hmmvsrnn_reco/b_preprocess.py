@@ -219,17 +219,18 @@ def transfer_feats(transfer_from, freeze_at):
     chunked_predictions = seqtools.unbatch(batched_predictions, batch_size)
 
     # recompose
-    out = [np.empty((d,) + l_feats.output_shape[2:], dtype=np.float32)
-           for d in durations]
+    feat_size = l_feats.output_shape[2:]
+    storage = open_memmap(dump_file, 'w+', dtype=np.float32,
+                          shape=(sum(durations),) + feat_size)
+    subsequences = np.stack([np.cumsum(durations) - durations,
+                             np.cumsum(durations)], axis=1)
+    out_view = seqtools.split(storage, subsequences)
 
     for v, (s, start, stop) in zip(chunked_predictions, chunks):
         skip = warmup if start > 0 else 0
-        out[s][start + skip:stop] = v[skip:stop - start]
+        out_view[s][start + skip:stop] = v[skip:stop - start]
 
-    # save cache
-    np.save(dump_file, np.concatenate(out))
-
-    return [out]
+    return [out_view]
 
 
 # ---------------------------------------------------------------------------------------

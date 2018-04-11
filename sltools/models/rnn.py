@@ -47,8 +47,8 @@ def build_predict_fn(model_dict, batch_size, max_time, nworkers=2):
                   for k in range(0, d - warmup, step)]
         chunked_sequences = []
         for feat in feature_sequences:
-            def get_chunk(i, t1, t2):
-                return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
+            def get_chunk(i, t1, t2, feat_=feat):
+                return adjust_length(feat_[i][t1:t2], size=max_time, pad=0)
 
             chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
         chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])

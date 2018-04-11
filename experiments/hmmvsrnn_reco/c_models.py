@@ -144,7 +144,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
 
 
 @SerializableFunc
-def bgr_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters=128, dropout=0.1):
+def bgr_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     warmup = (tconv_sz * filter_dilation) // 2
     batch_size, max_time, _, *crop_size = l_in.output_shape
     crop_size = tuple(crop_size)
@@ -175,11 +175,11 @@ def bgr_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters=128, dropout=0.1
 
 
 @SerializableFunc
-def fusion_encoder(l_in_skel, l_in_zmaps, **kwargs):
+def fusion_encoder(l_in_skel, l_in_zmaps, skel_kwargs, bgr_kwargs):
     modropout = [0.3, 0.1]
 
-    skel_feats = skel_encoder(l_in_skel, **kwargs)
-    zmaps_feats = bgr_encoder(l_in_zmaps, **kwargs)
+    skel_feats = skel_encoder(l_in_skel, **skel_kwargs)
+    zmaps_feats = bgr_encoder(l_in_zmaps, **bgr_kwargs)
 
     l_skel_feats, l_zmaps_feats = \
         modrop([skel_feats['l_out'], zmaps_feats['l_out']], p=modropout)

@@ -195,8 +195,8 @@ def transfer_feats(transfer_from, freeze_at):
               for k in range(0, d - warmup, step)]
     chunked_sequences = []
     for feat in autoreload_feats(report['meta']['modality']):
-        def get_chunk(i, t1, t2):
-            return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
+        def get_chunk(i, t1, t2, feat_=feat):
+            return adjust_length(feat_[i][t1:t2], size=max_time, pad=0)
 
         chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
     chunked_sequences = seqtools.collate(chunked_sequences)

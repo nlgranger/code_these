@@ -108,7 +108,7 @@ durations_val = subset(durations, val_subset)
 targets_val = rmap(lambda g, d: gloss2seq(g, d, 0),
                    gloss_seqs_val, durations_val)
 
-del feat_seqs, durations, gloss_seqs  # for security
+del feat_seqs, durations, gloss_seqs  # fool proofing
 
 
 # Model ---------------------------------------------------------------------------------
@@ -180,8 +180,8 @@ def train_one_epoch(report_key):
               for k in range(0, d - model_dict['warmup'], step)]
     chunked_sequences = []
     for feat in feat_seqs_train:
-        def get_chunk(i, t1, t2):
-            return adjust_length(feat[i][t1:t2], size=max_time, pad=0)
+        def get_chunk(i, t1, t2, feat_=feat):
+            return adjust_length(feat_[i][t1:t2], size=max_time, pad=0)
 
         chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
     chunked_sequences.append(seqtools.starmap(

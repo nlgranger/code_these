@@ -47,7 +47,7 @@ while True:
 
     args = ['-m', 'jupyter', 'nbconvert',
             "experiments/hmmvsrnn_reco/e_analyse_" + todo['model'] + ".ipynb",
-            "--to", "notebook", "--execute", "--ExecutePreprocessor.timeout=360",
+            "--to", "notebook", "--execute", "--ExecutePreprocessor.timeout=720",
             "--output", todo['name'] + ".ipynb"]
     ret = os.system(python + " " + " ".join(args))
     if ret != 0:

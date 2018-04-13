@@ -7,7 +7,6 @@ from time import time
 from itertools import combinations
 
 import numpy as np
-from lproc import rmap
 import seqtools
 from numpy.lib.format import open_memmap
 from scipy.ndimage.filters import gaussian_filter1d
@@ -239,7 +238,7 @@ def prepare():
     global feat_seqs
 
     # Processing pipeline for skeleton
-    feat_seqs = rmap(skel_feat, pose3d_seqs)
+    feat_seqs = seqtools.smap(skel_feat, pose3d_seqs)
 
     # Export to file
     feat_size = feat_seqs[0][0].shape
@@ -283,7 +282,7 @@ def prepare():
     #     storage[:, a:b] /= s
 
     # Processing pipeline for BGR frames
-    feat_seqs = rmap(bgr_feats, frame_seqs, pose2d_seqs)
+    feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)
 
     # Export to file
     feat_size = feat_seqs[0][0].shape

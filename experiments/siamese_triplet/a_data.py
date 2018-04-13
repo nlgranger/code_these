@@ -14,11 +14,11 @@ from sltools.transform import Transformation, transform_durations, \
     transform_pose2d, transform_pose3d, transform_frames
 from sltools.utils import split_seq, join_seqs
 
-from datasets import chalearn2014 as dataset
-# from datasets import devisign as dataset
+# from datasets import chalearn2014 as dataset
+from datasets import devisign as dataset
 
 
-tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache")
+cachedir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache")
 train_subset, val_subset, test_subset = None, None, None
 pose2d_seqs = None
 pose3d_seqs = None
@@ -49,78 +49,33 @@ def get_ref_pts(pose_seq):
 
 
 def prepare():
-    global train_subset, val_subset, test_subset, labels, durations, \
-        pose2d_seqs, pose3d_seqs, gloss_seqs
+    global train_subset, val_subset, test_subset, labels, durations, transformations, \
+        pose2d_seqs, pose3d_seqs
 
     # Create temporary directory
-    if not os.path.exists(tmpdir):
-        os.mkdir(tmpdir)
+    if not os.path.exists(cachedir):
+        os.mkdir(cachedir)
 
     # Load data
 
     # Chalearn
-    train_subset, val_subset, test_subset = dataset.default_splits()
-    pose2d_seqs = [dataset.positions(i) for i in range(len(dataset))]
-    pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
-    gloss_seqs = [dataset.glosses(i) for i in range(len(dataset))]
-
-    # Eliminate strange gloss annotations
-    gloss_seqs_train = [dataset.glosses(r) for r in train_subset]
-    rejected = set()
-    for r, gseq in zip(train_subset, gloss_seqs_train):
-        for i in range(len(gseq) - 1):
-            if gseq[i + 1, 1] - gseq[i, 2] < 0:
-                rejected.add(r)
-    train_subset = np.setdiff1d(train_subset, rejected)
-    if len(rejected) > 0:
-        logging.warning("Eliminated sequences with invalid glosses: {}".format(rejected))
-
-    # Interpolate missing poses and eliminate deteriorated training sequences
-    invalid_masks = smap(detect_invalid_pts, pose2d_seqs)
-    pose2d_seqs = smap(interpolate_positions, pose2d_seqs, invalid_masks)
-    pose3d_seqs = smap(interpolate_positions, pose3d_seqs, invalid_masks)
-
-    rejected = np.where([np.mean(im[:, important_joints]) > .15
-                         for im in invalid_masks])[0]
-    train_subset = np.setdiff1d(train_subset, rejected)
-    if len(rejected) > 0:
-        logging.warning("eliminated {} sequences with missing positions"
-                        .format(len(rejected)))
-
-    # Extract isolated gestures
-    subseqs = [(r, g, start, stop)
-               for r in range(len(dataset))
-               for g, start, stop in dataset.glosses(r)]
-    labels = [g for r in range(len(dataset)) for g, _, _ in dataset.glosses(r)]
-    durations = [stop - start for _, _, start, stop in subseqs]
-    train_subset, val_subset, test_subset = (
-        np.array([i for i, (r, g, _, _) in enumerate(subseqs)
-                  if (r in train_subset or r in val_subset) and g <= 10]),
-        np.array([i for i, (r, g, _, _) in enumerate(subseqs)
-                  if (r in train_subset or r in val_subset) and g > 10]),
-        np.array([]))
-    pose2d_seqs = [pose2d_seqs[seq][start:stop].astype(np.float32)
-                   for seq, _, start, stop in subseqs]
-    pose3d_seqs = [pose3d_seqs[seq][start:stop].astype(np.float32)
-                   for seq, _, start, stop in subseqs]
-
-    # Devisign
-    # pose2d_seqs = [dataset.positions(i).astype(np.float32) for i in range(len(dataset))]
+    # train_subset, val_subset, test_subset = dataset.default_splits()
+    # pose2d_seqs = [dataset.positions(i) for i in range(len(dataset))]
     # pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
-    # durations = np.array([dataset.durations(r) for r in range(len(dataset))])
-    # labels = np.array([dataset.label(r) for r in range(len(dataset))])
-    # signers = np.array([dataset.subject(r) for r in range(len(dataset))])
-    # shuffled_labels = np.unique(labels)
-    # train_subset = np.where(np.isin(signers, [1, 2, 5, 6])
-    #                         * np.isin(labels, shuffled_labels[:1000]))[0]
-    # val_subset = np.where(np.isin(signers, [3, 7])
-    #                       * np.isin(labels, shuffled_labels[1000:1500]))[0]
-    # test_subset = np.where(np.isin(signers, [4, 8])
-    #                        * np.isin(labels, shuffled_labels[1500:2000]))[0]
+    # gloss_seqs = [dataset.glosses(i) for i in range(len(dataset))]
     #
-    # pose2d_seqs = [dataset.positions(i).astype(np.float32)
-    #                for i in range(len(dataset))]
-    # pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
+    # # Eliminate strange gloss annotations
+    # gloss_seqs_train = [dataset.glosses(r) for r in train_subset]
+    # rejected = set()
+    # for r, gseq in zip(train_subset, gloss_seqs_train):
+    #     for i in range(len(gseq) - 1):
+    #         if gseq[i + 1, 1] - gseq[i, 2] < 0:
+    #             rejected.add(r)
+    # train_subset = np.setdiff1d(train_subset, rejected)
+    # if len(rejected) > 0:
+    #     logging.warning("Eliminated sequences with invalid glosses: {}".format(rejected))
+    #
+    # # Interpolate missing poses and eliminate deteriorated training sequences
     # invalid_masks = smap(detect_invalid_pts, pose2d_seqs)
     # pose2d_seqs = smap(interpolate_positions, pose2d_seqs, invalid_masks)
     # pose3d_seqs = smap(interpolate_positions, pose3d_seqs, invalid_masks)
@@ -131,6 +86,51 @@ def prepare():
     # if len(rejected) > 0:
     #     logging.warning("eliminated {} sequences with missing positions"
     #                     .format(len(rejected)))
+    #
+    # # Extract isolated gestures
+    # subseqs = [(r, g, start, stop)
+    #            for r in range(len(dataset))
+    #            for g, start, stop in dataset.glosses(r)]
+    # labels = [g for r in range(len(dataset)) for g, _, _ in dataset.glosses(r)]
+    # durations = [stop - start for _, _, start, stop in subseqs]
+    # train_subset, val_subset, test_subset = (
+    #     np.array([i for i, (r, g, _, _) in enumerate(subseqs)
+    #               if (r in train_subset or r in val_subset) and g <= 10]),
+    #     np.array([i for i, (r, g, _, _) in enumerate(subseqs)
+    #               if (r in train_subset or r in val_subset) and g > 10]),
+    #     np.array([]))
+    # pose2d_seqs = [pose2d_seqs[seq][start:stop].astype(np.float32)
+    #                for seq, _, start, stop in subseqs]
+    # pose3d_seqs = [pose3d_seqs[seq][start:stop].astype(np.float32)
+    #                for seq, _, start, stop in subseqs]
+
+    # Devisign
+    pose2d_seqs = [dataset.positions(i).astype(np.float32) for i in range(len(dataset))]
+    pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
+    durations = np.array([dataset.durations(r) for r in range(len(dataset))])
+    labels = np.array([dataset.label(r) for r in range(len(dataset))])
+    signers = np.array([dataset.subject(r) for r in range(len(dataset))])
+    shuffled_labels = np.unique(labels)
+    train_subset = np.where(np.isin(signers, [1, 2, 5, 6])
+                            * np.isin(labels, shuffled_labels[:1000]))[0]
+    val_subset = np.where(np.isin(signers, [3, 7])
+                          * np.isin(labels, shuffled_labels[1000:1500]))[0]
+    test_subset = np.where(np.isin(signers, [4, 8])
+                           * np.isin(labels, shuffled_labels[1500:2000]))[0]
+
+    pose2d_seqs = [dataset.positions(i).astype(np.float32)
+                   for i in range(len(dataset))]
+    pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
+    invalid_masks = smap(detect_invalid_pts, pose2d_seqs)
+    pose2d_seqs = smap(interpolate_positions, pose2d_seqs, invalid_masks)
+    pose3d_seqs = smap(interpolate_positions, pose3d_seqs, invalid_masks)
+
+    rejected = np.where([np.mean(im[:, important_joints]) > .15
+                         for im in invalid_masks])[0]
+    train_subset = np.setdiff1d(train_subset, rejected)
+    if len(rejected) > 0:
+        logging.warning("eliminated {} sequences with missing positions"
+                        .format(len(rejected)))
 
     # Default preprocessing
     ref2d = smap(get_ref_pts, pose2d_seqs)
@@ -161,7 +161,7 @@ def prepare():
         offset = len(transformations)
         transformations += [
             (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
-                               frame_width=dataset.bgr_frames(0)[0].shape[1],
+                               frame_width=640,
                                fliplr=uniform() < 0.15,
                                tilt=uniform(-7, 7) * np.pi / 180,
                                zshift=zshifts[r],
@@ -180,14 +180,14 @@ def prepare():
     pose3d_seqs = [transform_pose3d(pose3d_seqs[r], t) for r, t in transformations]
 
     # Export
-    np.save(os.path.join(tmpdir, "pose2d_seqs.npy"), join_seqs(pose2d_seqs)[0])
-    np.save(os.path.join(tmpdir, "pose3d_seqs.npy"), join_seqs(pose3d_seqs)[0])
+    np.save(os.path.join(cachedir, "pose2d_seqs.npy"), join_seqs(pose2d_seqs)[0])
+    np.save(os.path.join(cachedir, "pose3d_seqs.npy"), join_seqs(pose3d_seqs)[0])
 
     train_subset = train_subset.astype(np.int32)
     val_subset = val_subset.astype(np.int32)
     test_subset = test_subset.astype(np.int32)
 
-    with open(os.path.join(tmpdir, "data.pkl"), 'wb') as f:
+    with open(os.path.join(cachedir, "data.pkl"), 'wb') as f:
         pkl.dump((durations, labels, transformations,
                   train_subset, val_subset, test_subset), f)
 
@@ -198,7 +198,7 @@ def reload():
     global train_subset, val_subset, test_subset, \
         durations, labels, transformations, pose2d_seqs, pose3d_seqs, frame_seqs
 
-    with open(os.path.join(tmpdir, "data.pkl"), 'rb') as f:
+    with open(os.path.join(cachedir, "data.pkl"), 'rb') as f:
         durations, labels, transformations, \
             train_subset, val_subset, test_subset = pkl.load(f)
 
@@ -206,11 +206,11 @@ def reload():
                          np.cumsum(durations)], axis=1)
 
     pose2d_seqs = split_seq(
-        np.load(os.path.join(tmpdir, "pose2d_seqs.npy"), mmap_mode='r'),
+        np.load(os.path.join(cachedir, "pose2d_seqs.npy"), mmap_mode='r'),
         segments)
 
     pose3d_seqs = split_seq(
-        np.load(os.path.join(tmpdir, "pose3d_seqs.npy"), mmap_mode='r'),
+        np.load(os.path.join(cachedir, "pose3d_seqs.npy"), mmap_mode='r'),
         segments)
 
     frame_seqs = smap(lambda rt: np.array(dataset.bgr_frames(rt[0])), transformations)

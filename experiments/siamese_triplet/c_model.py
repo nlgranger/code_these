@@ -5,7 +5,7 @@ from sltools.nn_utils import DurationMaskLayer
 from experiments.hmmvsrnn_reco.c_models import skel_encoder
 
 
-def skel_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
+def skel_rnn(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
     n_lstm_units = 172
 

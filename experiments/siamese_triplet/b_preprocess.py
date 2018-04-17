@@ -199,14 +199,14 @@ def prepare():
                           shape=(total_duration,) + feat_size)
     seqs_storage = split_seq(storage, subsequences)
 
-    print("computing feats .... eta ..:..:..", end="", flush=True)
-    t1 = time()
-    for i, f in enumerate(feat_seqs):
-        seqs_storage[i][...] = f
-        eta = (time() - t1) / subsequences[i, 1] * (total_duration - subsequences[i, 1])
-        print("\rcomputing feats {:3.0f}% eta {}".format(
-            subsequences[i, 1] / total_duration * 100, timedelta(seconds=eta)),
-            end="", flush=True)
+    # print("computing feats .... eta ..:..:..", end="", flush=True)
+    # t1 = time()
+    # for i, f in enumerate(feat_seqs):
+    #     seqs_storage[i][...] = f
+    #     eta = (time() - t1) / subsequences[i, 1] * (total_duration - subsequences[i, 1])
+    #     print("\rcomputing feats {:3.0f}% eta {}".format(
+    #         subsequences[i, 1] / total_duration * 100, timedelta(seconds=eta)),
+    #         end="", flush=True)
 
     print("")
 

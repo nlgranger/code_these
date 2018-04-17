@@ -5,9 +5,10 @@ import logging
 import pickle as pkl
 
 import numpy as np
+from numpy.lib.format import open_memmap
 from numpy.random import uniform
 from scipy.ndimage.filters import gaussian_filter1d
-from seqtools import smap
+import seqtools
 
 from sltools.preprocess import interpolate_positions
 from sltools.transform import Transformation, transform_durations, \
@@ -25,6 +26,7 @@ pose3d_seqs = None
 frame_seqs = None
 durations = None
 labels = None
+recordings = None
 transformations = None
 joints = dataset.JointType
 vocabulary = np.arange(1, 21)
@@ -49,8 +51,8 @@ def get_ref_pts(pose_seq):
 
 
 def prepare():
-    global train_subset, val_subset, test_subset, labels, durations, transformations, \
-        pose2d_seqs, pose3d_seqs
+    global train_subset, val_subset, test_subset, labels, durations, \
+        recordings, transformations, pose2d_seqs, pose3d_seqs
 
     # Create temporary directory
     if not os.path.exists(cachedir):
@@ -113,17 +115,16 @@ def prepare():
     shuffled_labels = np.unique(labels)
     train_subset = np.where(np.isin(signers, [1, 2, 5, 6])
                             * np.isin(labels, shuffled_labels[:1000]))[0]
-    val_subset = np.where(np.isin(signers, [3, 7])
-                          * np.isin(labels, shuffled_labels[1000:1500]))[0]
-    test_subset = np.where(np.isin(signers, [4, 8])
-                           * np.isin(labels, shuffled_labels[1500:2000]))[0]
+    val_subset = np.where(np.isin(signers, [3, 4, 7, 8])
+                          * np.isin(labels, shuffled_labels[1000:]))[0]
+    test_subset = np.array([], dtype=np.int64)
 
     pose2d_seqs = [dataset.positions(i).astype(np.float32)
                    for i in range(len(dataset))]
     pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
-    invalid_masks = smap(detect_invalid_pts, pose2d_seqs)
-    pose2d_seqs = smap(interpolate_positions, pose2d_seqs, invalid_masks)
-    pose3d_seqs = smap(interpolate_positions, pose3d_seqs, invalid_masks)
+    invalid_masks = seqtools.smap(detect_invalid_pts, pose2d_seqs)
+    pose2d_seqs = seqtools.smap(interpolate_positions, pose2d_seqs, invalid_masks)
+    pose3d_seqs = seqtools.smap(interpolate_positions, pose3d_seqs, invalid_masks)
 
     rejected = np.where([np.mean(im[:, important_joints]) > .15
                          for im in invalid_masks])[0]
@@ -133,16 +134,17 @@ def prepare():
                         .format(len(rejected)))
 
     # Default preprocessing
-    ref2d = smap(get_ref_pts, pose2d_seqs)
-    ref3d = smap(get_ref_pts, pose3d_seqs)
+    ref2d = seqtools.smap(get_ref_pts, pose2d_seqs)
+    ref3d = seqtools.smap(get_ref_pts, pose3d_seqs)
 
     zshifts = np.array([tgt_dist - rp[:, 2].mean() for rp in ref3d])
 
+    recordings = np.arange(len(labels))
     transformations = [
-        (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r]))
-        for r in np.arange(len(labels))]
+        Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r])
+        for r in recordings]
 
-    # Augment training set
+    # Precompute transformations for augmentation of the training set
     original_train_subset = train_subset
     flip_mapping = ([joints.ShoulderRight, joints.ElbowRight,
                      joints.WristRight, joints.HandRight, joints.ShoulderLeft,
@@ -159,36 +161,58 @@ def prepare():
 
     for _ in range(1):
         offset = len(transformations)
+        recordings = np.concatenate([recordings, original_train_subset])
         transformations += [
-            (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
-                               frame_width=640,
-                               fliplr=uniform() < 0.15,
-                               tilt=uniform(-7, 7) * np.pi / 180,
-                               zshift=zshifts[r],
-                               xscale=uniform(.85, 1.15), yscale=uniform(.85, 1.15),
-                               zscale=uniform(.85, 1.15), tscale=uniform(.7, 1.3)))
+            Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
+                           frame_width=640,
+                           fliplr=uniform() < 0.15,
+                           tilt=uniform(-7, 7) * np.pi / 180,
+                           zshift=zshifts[r],
+                           xscale=uniform(.85, 1.15), yscale=uniform(.85, 1.15),
+                           zscale=uniform(.85, 1.15), tscale=uniform(.7, 1.3))
             for r in original_train_subset]
         train_subset = np.concatenate([train_subset,
                                        np.arange(offset, len(transformations))])
 
+    # Precompute some augmentated values, save video transformation for later
     durations = np.array([transform_durations(durations[r], t)
-                          for r, t in transformations])
+                          for r, t in zip(recordings, transformations)])
 
-    labels = np.array([labels[r] for r, _ in transformations])
+    labels = np.array([labels[r] for r in recordings])
 
-    pose2d_seqs = [transform_pose2d(pose2d_seqs[r], t) for r, t in transformations]
-    pose3d_seqs = [transform_pose3d(pose3d_seqs[r], t) for r, t in transformations]
+    pose2d_seqs = seqtools.gather(pose2d_seqs, recordings)
+    pose2d_seqs = seqtools.smap(transform_pose2d, pose2d_seqs, transformations)
+
+    pose3d_seqs = seqtools.gather(pose3d_seqs, recordings)
+    pose3d_seqs = seqtools.smap(transform_pose3d, pose3d_seqs, transformations)
 
     # Export
-    np.save(os.path.join(cachedir, "pose2d_seqs.npy"), join_seqs(pose2d_seqs)[0])
-    np.save(os.path.join(cachedir, "pose3d_seqs.npy"), join_seqs(pose3d_seqs)[0])
+    total_duration = sum(durations)
+    subsequences = np.stack([np.cumsum(durations) - durations,
+                             np.cumsum(durations)], axis=1)
+
+    feat_size = pose2d_seqs[0].shape[1:]
+    dump_file = os.path.join(cachedir, "pose2d_seqs.npy")
+    storage = open_memmap(dump_file, 'w+', dtype=np.float32,
+                          shape=(total_duration,) + feat_size)
+    seqs_storage = split_seq(storage, subsequences)
+    for i, s in enumerate(seqtools.prefetch(pose2d_seqs, 2, 20)):
+        seqs_storage[i][...] = s
+
+    feat_size = pose3d_seqs[0].shape[1:]
+    dump_file = os.path.join(cachedir, "pose3d_seqs.npy")
+    storage = open_memmap(dump_file, 'w+', dtype=np.float32,
+                          shape=(total_duration,) + feat_size)
+    seqs_storage = split_seq(storage, subsequences)
+    for i, s in enumerate(seqtools.prefetch(pose3d_seqs, 2, 20)):
+        seqs_storage[i][...] = s
 
     train_subset = train_subset.astype(np.int32)
     val_subset = val_subset.astype(np.int32)
     test_subset = test_subset.astype(np.int32)
 
     with open(os.path.join(cachedir, "data.pkl"), 'wb') as f:
-        pkl.dump((durations, labels, transformations,
+        pkl.dump((durations, labels, recordings, transformations,
                   train_subset, val_subset, test_subset), f)
 
     print("done")
@@ -196,10 +220,11 @@ def prepare():
 
 def reload():
     global train_subset, val_subset, test_subset, \
-        durations, labels, transformations, pose2d_seqs, pose3d_seqs, frame_seqs
+        durations, labels, recordings, transformations, \
+        pose2d_seqs, pose3d_seqs, frame_seqs
 
     with open(os.path.join(cachedir, "data.pkl"), 'rb') as f:
-        durations, labels, transformations, \
+        durations, labels, recordings, transformations, \
             train_subset, val_subset, test_subset = pkl.load(f)
 
     segments = np.stack([np.cumsum(durations) - durations,
@@ -213,8 +238,9 @@ def reload():
         np.load(os.path.join(cachedir, "pose3d_seqs.npy"), mmap_mode='r'),
         segments)
 
-    frame_seqs = smap(lambda rt: np.array(dataset.bgr_frames(rt[0])), transformations)
-    frame_seqs = smap(transform_frames, frame_seqs, [t for _, t in transformations])
+    frame_seqs = seqtools.smap(lambda r: np.array(dataset.bgr_frames(r)),
+                               recordings)
+    frame_seqs = seqtools.smap(transform_frames, frame_seqs, transformations)
 
 
 if __name__ == "__main__":

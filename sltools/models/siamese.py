@@ -3,24 +3,45 @@ import theano
 import theano.tensor as T
 import lasagne
 from lasagne.layers import MergeLayer
-from lproc import chunk_load
+import seqtools
+
+from sltools.nn_utils import adjust_length
 
 
-def build_predict_fn(model_dict, batch_size):
+def build_predict_fn(model_dict, batch_size, max_time):
     out = lasagne.layers.get_output(model_dict['l_linout'], deterministic=True)
     predict_batch_fn = theano.function(
         [l.input_var for l in model_dict['l_in']]
         + [model_dict['l_duration'].input_var],
         out)
 
-    def predict_fn(sequences):
-        buffers = [np.zeros(shape=(4 * batch_size,) + x.shape,
-                            dtype=x.dtype) for x in next(zip(*sequences))]
-        minibatch_iterator = chunk_load(sequences, buffers, batch_size, pad_last=True)
+    def predict_fn(sequences, durations):
+        # clip duration and pad
+        sequences = [
+            seqtools.smap(lambda s: adjust_length(s, max_time), feat_seqs)
+            for feat_seqs in sequences]
+        durations = np.fmin(durations, max_time)
+
+        # batch
+        batches = [
+            seqtools.batch(
+                feat_seqs, batch_size,
+                drop_last=False, pad=np.zeros_like(feat_seqs[0]),
+                collate_fn=np.stack)
+            for feat_seqs in sequences]
+        batches.append(
+            seqtools.batch(
+                durations, batch_size,
+                drop_last=False, pad=np.zeros([1], dtype=np.int32),
+                collate_fn=np.array))
+
+        batches = seqtools.collate(batches)
+
+        batch_iterator = seqtools.prefetch(batches, nworkers=2, max_buffered=20)
 
         predictions = np.concatenate([
             predict_batch_fn(*b)
-            for b in minibatch_iterator], axis=0)
+            for b in batch_iterator], axis=0)
 
         return predictions[:len(sequences[0])]
 

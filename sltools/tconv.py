@@ -4,13 +4,13 @@ import lasagne
 
 class TemporalConv(lasagne.layers.Layer):
     """1D convolution layer
-    
-    Performs 1D convolution on its input and optionally adds a bias and applies an 
-    elementwise nonlinearity. 
-    
+
+    Performs 1D convolution on its input and optionally adds a bias and applies an
+    elementwise nonlinearity.
+
     Parameters
     ----------
-    
+
     incoming : a :class:`Layer` instance or a tuple
         The layer feeding into this layer, or the expected input shape. Must
         be a tensor of 2+`n` dimensions:
@@ -21,9 +21,9 @@ class TemporalConv(lasagne.layers.Layer):
 
     filter_size : int
         An integer specifying the size of the filters
-        
+
     filter_dilation: int
-        An integer specifying the dilation factor of the filters. A factor of $x$ 
+        An integer specifying the dilation factor of the filters. A factor of $x$
         corresponds to $x−1$ zeros inserted between adjacent filter elements.
 
     W : Theano shared variable, expression, numpy array or callable
@@ -43,7 +43,7 @@ class TemporalConv(lasagne.layers.Layer):
     nonlinearity : callable or None
         The nonlinearity that is applied to the layer activations. If None
         is provided, the layer will be linear.
-        
+
     **kwargs
         Any additional keyword arguments are passed to the `Layer` superclass.
 
@@ -116,7 +116,7 @@ class TemporalConv(lasagne.layers.Layer):
         batch_sz = input.shape[0]
         seq_sz = input.shape[1]
         feat_sz = input.shape[2]
-        nfilters = self.num_filters
+        num_filters = self.num_filters
         filter_sz = self.filter_size
         subsample = self.subsample
         dilation = self.filter_dilation
@@ -131,35 +131,36 @@ class TemporalConv(lasagne.layers.Layer):
             border_mode = self.pad
 
         out_seq_sz = seq_sz + 2 * border_mode - (filter_sz - 1) * dilation
+        out_seq_sz = out_seq_sz // subsample
 
         if self.conv_type == "regular":
             filters = self.W
             output = T.nnet.conv2d(
                 input=input.reshape((batch_sz, 1, seq_sz, feat_sz)),
-                filters=filters.reshape((nfilters, 1, filter_sz, feat_sz)),
+                filters=filters.reshape((num_filters, 1, filter_sz, feat_sz)),
                 border_mode=(border_mode, 0),
                 subsample=(subsample, 1),
                 filter_dilation=(dilation, 1))
             output = output.dimshuffle(0, 2, 3, 1) \
-                           .reshape((batch_sz, out_seq_sz, self.num_filters))
+                           .reshape((batch_sz, out_seq_sz, num_filters))
 
         elif self.conv_type == "expand":
             filters = self.W
             output = T.nnet.conv2d(
                 input.reshape((batch_sz, 1, seq_sz, feat_sz)),
-                filters.reshape((nfilters, 1, filter_sz, 1)),
+                filters.reshape((num_filters, 1, filter_sz, 1)),
                 border_mode=(border_mode, 0),
                 subsample=(subsample, 1),
                 filter_dilation=(dilation, 1))
             output = output.dimshuffle(0, 2, 3, 1) \
-                           .reshape((batch_sz, out_seq_sz, feat_sz * self.num_filters))
+                           .reshape((batch_sz, out_seq_sz, feat_sz * num_filters))
 
         else:  # self.conv_type == "match"
             filters = self.W
             output = T.nnet.conv2d(
                 input.dimshuffle(0, 2, 1).reshape((batch_sz, feat_sz, seq_sz, 1)),
                 filters.reshape((feat_sz, 1, filter_sz, 1)),
-                num_groups=nfilters,
+                num_groups=num_filters,
                 border_mode=(border_mode, 0),
                 subsample=(subsample, 1),
                 filter_dilation=(dilation, 1))
@@ -176,7 +177,7 @@ class TemporalConv(lasagne.layers.Layer):
 
     def get_output_shape_for(self, input_shape):
         batch_size = self.input_shape[0]
-        duration = self.input_shape[1]
+        duration = self.input_shape[1] // self.subsample
         feat_sz = self.input_shape[2]
         if self.conv_type == "regular":
             num_feats = self.num_filters

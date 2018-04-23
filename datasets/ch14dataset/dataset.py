@@ -50,8 +50,8 @@ class Chalearn2014Dataset:
         return len(self.rec_info)
 
     def positions(self, recording) -> np.ndarray:
-        duration = self.rec_info[recording]['duration']
-        skel_data_off = self.rec_info[recording]['skel_data_off']
+        duration = self.rec_info['duration'][recording]
+        skel_data_off = self.rec_info['skel_data_off'][recording]
 
         return self.skel_data[
             skel_data_off:skel_data_off + duration,
@@ -59,8 +59,8 @@ class Chalearn2014Dataset:
             (self.Coord.Px, self.Coord.Py)].astype(np.int32)
 
     def positions_3d(self, recording):
-        duration = self.rec_info[recording]['duration']
-        skel_data_off = self.rec_info[recording]['skel_data_off']
+        duration = self.rec_info['duration'][recording]
+        skel_data_off = self.rec_info['skel_data_off'][recording]
 
         return self.skel_data[
             skel_data_off:skel_data_off + duration,
@@ -68,30 +68,30 @@ class Chalearn2014Dataset:
             (self.Coord.Wx, self.Coord.Wy, self.Coord.Wz)].copy()
 
     def durations(self, recordings):
-        return int(self.rec_info[recordings]['duration'].sum())
+        return int(self.rec_info['duration'][recordings].sum())
 
     def subject(self, recording):
         raise NotImplementedError
 
     def glosses(self, recording):
-        n_labels = self.rec_info[recording]['n_labels']
-        lbl_data_off = self.rec_info[recording]['lbl_data_off']
+        n_labels = self.rec_info['n_labels'][recording]
+        lbl_data_off = self.rec_info['lbl_data_off'][recording]
 
         return self.labels[lbl_data_off:lbl_data_off + n_labels, :].copy()
 
     def bgr_frames(self, recording):
-        num = self.rec_info[recording]['num']
+        num = self.rec_info['num'][recording]
         filename = os.path.join(self.datadir,
                                 "Sample{:04d}_color.mp4".format(num))
 
         return VideoSequence(filename)
 
     def z_maps(self, recording):
-        num = self.rec_info[recording]['num']
+        num = self.rec_info['num'][recording]
         filename = os.path.join(self.datadir,
                                 "Sample{:04d}_depth.mp4".format(num))
 
-        max_depth = self.rec_info[recording]['max_depth']
+        max_depth = self.rec_info['max_depth'][recording]
 
         return rmap(
             lambda frame: frame[:, :, 0].astype(np.float32) * max_depth / 255,

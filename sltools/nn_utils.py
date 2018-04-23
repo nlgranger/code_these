@@ -78,6 +78,25 @@ def seq_ce_loss(linout, targets, masks, weights):
         (batch_size, max_len)) * masks
 
 
+def cdist(a, b, metric='euclidean', epsilon=1e-7):
+    if metric == 'euclidean':
+        a = T.reshape(a, (a.shape[0], -1)).dimshuffle(0, 'x', 1)
+        b = T.reshape(b, (b.shape[0], -1)).dimshuffle('x', 0, 1)
+        return (a - b).norm(2, axis=2)
+
+    elif metric == 'cosine':
+        a = T.reshape(a, (a.shape[0], -1))
+        a /= a.norm(2, axis=1).dimshuffle(0, 'x') + epsilon
+        a = a.dimshuffle(0, 'x', 1)
+        b = T.reshape(b, (b.shape[0], -1))
+        b /= b.norm(2, axis=1).dimshuffle(0, 'x') + epsilon
+        b = b.dimshuffle('x', 0, 1)
+        return 1 - T.sum(a * b, axis=2)
+
+    else:
+        raise ValueError("invalid metric")
+
+
 # Useful routines -----------------------------------------------------------------------
 
 def compute_scores(predictions, targets, vocabulary):

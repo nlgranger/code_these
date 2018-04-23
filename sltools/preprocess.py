@@ -4,6 +4,9 @@ from scipy.interpolate import interp1d
 
 
 def interpolate_positions(p, invalid, kind='cubic'):
+    if not np.any(invalid):
+        return p
+
     valid = np.invert(invalid)
 
     for j in range(p.shape[1]):

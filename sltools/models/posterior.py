@@ -58,9 +58,12 @@ class PosteriorModel:
         self.l_in = [lasagne.layers.InputLayer((self.batch_size, self.max_len) + shape)
                      for shape in self.input_shapes]
         self.input_vars = [l.input_var for l in self.l_in]
+
         encoder_data = self.build_encoder(*self.l_in)
         self.l_feats = encoder_data['l_out']
+
         self.warmup = encoder_data['warmup']
+
         if len(self.l_feats.output_shape) != 3:
             raise ValueError("The network should have an output shape like"
                              " (batch, duration, featsize).")

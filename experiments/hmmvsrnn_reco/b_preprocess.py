@@ -183,7 +183,7 @@ def transfer_feats(transfer_from, freeze_at):
         batch_size, max_time, *_ = l_in[0].output_shape  # TODO: fragile
         warmup = model_dict['warmup']
 
-    feats_var = lasagne.layers.get_output(l_feats)
+    feats_var = lasagne.layers.get_output(l_feats, deterministic=True)
     predict_batch_fn = theano.function([l.input_var for l in l_in], feats_var)
 
     step = max_time - 2 * warmup

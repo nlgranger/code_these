@@ -145,7 +145,7 @@ train_batch_fn = build_train_fn(
 
 save_every = 5
 min_progress = 1e-3  # if improvement is below, decrease learning rate
-l_rate = 1e-3
+l_rate = 1e-4
 
 e = 0
 
@@ -269,9 +269,9 @@ def update_setup(epoch_prefix):
 
 resume("epoch")
 
-while e < 150:
+while e < (50 if modality == 'transfer' else 150):
     train_one_epoch("epoch {:04d}".format(e))
-    if (e + 1) % 5 == 0:
+    if (e + 1) % 1 == 0:
         extra_report("epoch {:04d}".format(e))
     update_setup("epoch")
     e += 1

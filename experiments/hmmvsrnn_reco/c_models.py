@@ -334,7 +334,6 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
 
 # ---------------------------------------------------------------------------------------
 
-@SerializableFunc
 def skel_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
     n_lstm_units = 172
@@ -378,7 +377,6 @@ def skel_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     }
 
 
-@SerializableFunc
 def bgr_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
     n_lstm_units = 172
@@ -422,7 +420,6 @@ def bgr_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     }
 
 
-@SerializableFunc
 def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
                 encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
@@ -469,16 +466,16 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
     }
 
 
-@SerializableFunc
 def transfer_lstm(*feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
     encoder_kwargs = encoder_kwargs or {}
-    n_lstm_units = 172
 
     l_in = [lasagne.layers.InputLayer(shape=(batch_size, max_time) + s)
             for s in feats_shape]
     encoder_data = transfer_encoder(*l_in, **encoder_kwargs)
     l_feats = encoder_data['l_out']
     warmup = encoder_data['warmup']
+
+    l_feats = lasagne.layers.DropoutLayer(l_feats, p=.8)
 
     # LSTM layers
     durations = T.ivector()
@@ -489,15 +486,14 @@ def transfer_lstm(*feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         l_duration, max_time,
         name="l_mask")
 
-    l_d1 = lasagne.layers.dropout(l_feats, p=.3)
     l_lstm1 = lasagne.layers.GRULayer(
-        l_d1, num_units=n_lstm_units, mask_input=l_mask,
+        l_feats, num_units=172, mask_input=l_mask,
         grad_clipping=1., learn_init=True)
     l_lstm2 = lasagne.layers.GRULayer(
-        l_d1, num_units=n_lstm_units, mask_input=l_mask,
+        l_feats, num_units=172, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
-    l_cc1 = lasagne.layers.dropout(l_cc1, p=.3)
+    l_cc1 = DropoutLayer(l_cc1, p=0.3)
 
     l_linout = lasagne.layers.DenseLayer(
         l_cc1, num_units=21, num_leading_axes=2, nonlinearity=None,

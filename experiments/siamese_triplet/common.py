@@ -1,6 +1,7 @@
 import numpy as np
 import seqtools
 from theano import tensor as T
+import lasagne
 import scipy.spatial.distance
 
 from sltools.nn_utils import adjust_length, cdist, logsumexp, log_softmax, \
@@ -148,7 +149,8 @@ def kernel_loss(linout, targets_var, ep_voca_size, shots):
         axis=2)
 
     train_loss = 0
-    target_loss = categorical_crossentropy_logdomain(alpha, targets_var)
+    # target_loss = categorical_crossentropy_logdomain(alpha, targets_var)
+    target_loss = lasagne.objectives.multiclass_hinge_loss(alpha, targets_var, delta=.5)
     train_loss += target_loss.mean()
     regularizer = T.pow(1.0 - linout.norm(2, axis=1), 2)
     train_loss += 0.1 * regularizer.mean()

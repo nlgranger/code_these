@@ -4,7 +4,7 @@ import theano.tensor as T
 import lasagne
 from lasagne.layers import InputLayer, DenseLayer, GRULayer, \
     BatchNormLayer, DropoutLayer, ConcatLayer, NonlinearityLayer
-from lasagne.nonlinearities import leaky_rectify, sigmoid
+from lasagne.nonlinearities import leaky_rectify, sigmoid, rectify, tanh
 import seqtools
 
 from sltools.nn_utils import DurationMaskLayer, adjust_length
@@ -15,7 +15,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     warmup = (tconv_sz * filter_dilation) // 2
 
     l1 = DenseLayer(
-        l_in, num_units=512,
+        l_in, num_units=256,
         num_leading_axes=2,
         nonlinearity=None)
     l1 = BatchNormLayer(l1, axes=(0, 1))
@@ -24,7 +24,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     d1 = DropoutLayer(l1, p=dropout)
 
     l2 = DenseLayer(
-        d1, num_units=512,
+        d1, num_units=256,
         num_leading_axes=2,
         nonlinearity=None)
     l2 = BatchNormLayer(l2, axes=(0, 1))
@@ -68,17 +68,17 @@ def skel_rnn(feats_shape, batch_size, max_time, encoder_kwargs):
         name="l_mask")
 
     l_lstm1 = GRULayer(
-        l_feats, num_units=256, mask_input=l_mask,
+        l_feats, num_units=128, mask_input=l_mask,
         grad_clipping=1., learn_init=True, only_return_final=True)
     l_lstm2 = GRULayer(
-        l_feats, num_units=256, mask_input=l_mask,
+        l_feats, num_units=128, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True, only_return_final=True)
     l_cc1 = ConcatLayer((l_lstm1, l_lstm2), axis=1)
     # l_cc1 = dropout(l_cc1, p=.3)
 
     l_linout = DenseLayer(
-        l_cc1, num_units=128, num_leading_axes=1,
-        nonlinearity=sigmoid,
+        l_cc1, num_units=72,
+        nonlinearity=tanh,
         name="l_linout")
 
     # l_linout = ExpressionLayer(

@@ -8,18 +8,31 @@ from sklearn.metrics import confusion_matrix
 
 # Generic mathematical functions --------------------------------------------------------
 
-def logsumexp(x, axis, keepdims=False):
+def logsumexp(x, axis=-1, keepdims=False):
+    axis = x.ndim + axis if axis < 0 else axis
     k = T.max(x, axis=axis, keepdims=True)
-    return T.log(T.sum(T.exp(x - k), axis=axis, keepdims=keepdims)) + k
+    res = T.log(T.sum(T.exp(x - k), axis=axis, keepdims=True)) + k
+
+    if keepdims:
+        return res
+    else:
+        return res.dimshuffle([i for i in range(x.ndim) if i != axis])
 
 
-def log_softmax(x):
-    xdev = x - x.max(axis=2, keepdims=True)
-    return xdev - T.log(T.sum(T.exp(xdev), axis=2, keepdims=True))
+def log_softmax(x, axis=-1):
+    xdev = x - x.max(axis=axis, keepdims=True)
+    return xdev - T.log(T.sum(T.exp(xdev), axis=axis, keepdims=True))
 
 
 def categorical_crossentropy_logdomain(log_predictions, targets):
-    return -log_predictions[T.arange(targets.shape[0]), targets]
+    """Compute categorical cross entropy given predictions in log-domain along last axis.
+    """
+    data_shape = targets.shape
+    print()
+    log_predictions = T.reshape(log_predictions, (-1, log_predictions.shape[-1]))
+    targets = T.flatten(targets)
+    return T.reshape(-log_predictions[T.arange(targets.shape[0]), targets],
+                     data_shape)
 
 
 def onehot(y, labels):
@@ -78,11 +91,21 @@ def seq_ce_loss(linout, targets, masks, weights):
         (batch_size, max_len)) * masks
 
 
-def cdist(a, b, metric='euclidean', epsilon=1e-7):
-    if metric == 'euclidean':
+def cdist(a, b, metric='euclidean', p=2., epsilon=1e-4):
+    if metric == 'cityblock':
         a = T.reshape(a, (a.shape[0], -1)).dimshuffle(0, 'x', 1)
         b = T.reshape(b, (b.shape[0], -1)).dimshuffle('x', 0, 1)
-        return (a - b).norm(2, axis=2)
+        return (a - b).abs().sum(axis=2)
+
+    if metric == 'euclidean':
+        if p < 1.:
+            raise ValueError("too small p for p-norm")
+        return cdist(a, b, 'minkovski', p=2.)
+
+    if metric == 'minkovski':
+        a = T.reshape(a, (a.shape[0], -1)).dimshuffle(0, 'x', 1)
+        b = T.reshape(b, (b.shape[0], -1)).dimshuffle('x', 0, 1)
+        return (a - b).norm(p, axis=2)
 
     elif metric == 'cosine':
         a = T.reshape(a, (a.shape[0], -1))

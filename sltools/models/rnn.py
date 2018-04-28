@@ -18,8 +18,6 @@ def build_train_fn(model_dict, max_time, warmup,
 
     parameters = lasagne.layers.get_all_params(model_dict['l_linout'], trainable=True)
     l_rate_var = T.scalar('l_rate')
-    # grads = theano.grad(loss, parameters)
-    # grads = [T.clip(grad, -0.01, 0.01) for grad in grads]  # TODO: as parameter
     updates = updates_fn(loss, parameters, learning_rate=l_rate_var)
 
     return theano.function(

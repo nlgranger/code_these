@@ -24,6 +24,10 @@ def log_softmax(x, axis=-1):
     return xdev - T.log(T.sum(T.exp(xdev), axis=axis, keepdims=True))
 
 
+def softmax(x, axis=-1):
+    return T.exp(log_softmax(x, axis=axis))
+
+
 def categorical_crossentropy_logdomain(log_predictions, targets):
     """Compute categorical cross entropy given predictions in log-domain along last axis.
     """

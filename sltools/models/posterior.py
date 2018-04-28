@@ -64,15 +64,8 @@ class PosteriorModel:
 
         self.warmup = encoder_data['warmup']
 
-        if len(self.l_feats.output_shape) != 3:
-            raise ValueError("The network should have an output shape like"
-                             " (batch, duration, featsize).")
-        if self.l_feats.output_shape[2] != self.nstates:
-            logging.info("Adding one dense layer to match the output dimension")
-            self.l_raw = lasagne.layers.DenseLayer(
-                self.l_feats, self.nstates, num_leading_axes=2, nonlinearity=None)
-        else:
-            self.l_raw = self.l_feats
+        self.l_raw = lasagne.layers.DenseLayer(
+            self.l_feats, self.nstates, num_leading_axes=2, nonlinearity=None)
         self.l_out = lasagne.layers.NonlinearityLayer(
             self.l_raw, nonlinearity=log_softmax)
 

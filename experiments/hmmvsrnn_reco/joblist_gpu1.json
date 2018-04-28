@@ -291,7 +291,6 @@
   "max_time": 128,
   "encoder_kwargs": {
     "transfer_from": "rnn_skel_tc15",
-    "freeze_at": "embedding",
     "terminate_at": "embedding"
   }
 },{

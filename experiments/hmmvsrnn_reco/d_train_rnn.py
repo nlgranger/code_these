@@ -91,9 +91,9 @@ elif modality == "fusion":
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
-    feat_seqs = transfer_feats(encoder_kwargs['transfer_from'],
-                               encoder_kwargs['freeze_at'])
+    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feat_seqs
+    feat_seqs = transfer_feat_seqs(encoder_kwargs['transfer_from'],
+                                   encoder_kwargs['freeze_at'])
 else:
     raise ValueError()
 
@@ -134,7 +134,10 @@ predict_fn = build_predict_fn(model_dict, batch_size, max_time)
 
 # Training ------------------------------------------------------------------------------
 
-weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
+if modality == 'transfer':
+    weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.2
+else:
+    weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
 weights *= 21 / weights.sum()
 loss_fn = partial(seq_ce_loss, weights=weights)
 updates_fn = lasagne.updates.adam
@@ -143,9 +146,14 @@ train_batch_fn = build_train_fn(
     model_dict, max_time, model_dict['warmup'],
     loss_fn, updates_fn)
 
-save_every = 5
+if modality == 'transfer':  # slow down learning otherwise best epoch is skipped
+    save_every = 1
+    l_rate = 1e-3
+else:
+    save_every = 5
+    l_rate = 1e-3
+
 min_progress = 1e-3  # if improvement is below, decrease learning rate
-l_rate = 1e-4
 
 e = 0
 
@@ -210,11 +218,11 @@ def train_one_epoch(report_key):
 
     # train
     t = time.time()
-    running_loss = np.log(20)
+    running_loss = None
     for b in minibatches:
         loss = train_batch_fn(*b, l_rate)
         batch_losses.append(loss)
-        running_loss = .99 * running_loss + .01 * loss
+        running_loss = .99 * running_loss + .01 * loss if running_loss else loss
         if time.time() - t > 1:
             print("\rbatch loss : {:>2.4f}".format(running_loss), end='', flush=True)
             t = time.time()
@@ -247,7 +255,6 @@ def extra_report(report_key):
     epoch_report['params'] = params
 
     report[report_key] = epoch_report
-    report.sync()
 
 
 def update_setup(epoch_prefix):
@@ -271,46 +278,8 @@ resume("epoch")
 
 while e < (50 if modality == 'transfer' else 150):
     train_one_epoch("epoch {:04d}".format(e))
-    if (e + 1) % 1 == 0:
+    if (e + 1) % save_every == 0:
         extra_report("epoch {:04d}".format(e))
     update_setup("epoch")
     e += 1
-
-
-# fine tune -----------------------------------------------------------------------------
-
-# def setup_finetune():
-#     global train_batch_fn, save_every, min_progress, l_rate
-#
-#     weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
-#     weights *= 21 / weights.sum()
-#     loss_fn = partial(seq_hinge_loss, weights=weights)
-#     updates_fn = lasagne.updates.adam
-#
-#     train_batch_fn = build_train_fn(
-#         model_dict, model_args['max_time'], model_dict['warmup'], loss_fn, updates_fn)
-#
-#     save_every = 5
-#     min_progress = 1e-5
-#     l_rate = 1e-5
-#
-#     best_epoch = sorted([(r['val_scores']['jaccard'], e_)
-#                          for e_, r in report.items()
-#                          if e_.startswith("epoch")
-#                          and "params" in r.keys()])[-1][1]
-#     print("fine-tuning from: {}".format(best_epoch))
-#     epoch_report = report[best_epoch]
-#     lasagne.layers.set_all_param_values(
-#         model_dict['l_linout'],
-#         epoch_report['params'])
-#
-#
-# setup_finetune()
-#
-# resume("finetune")
-#
-# while e < 170:
-#     train_one_epoch("finetune")
-#     extra_report("finetune")
-#     update_setup("finetune")
-#     e += 1
+    report.sync()

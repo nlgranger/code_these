@@ -139,19 +139,29 @@ def bgr_feats(frame_seq, pose2d_seq):
     return output
 
 
-def transfer_feats(transfer_from, freeze_at):
+# ---------------------------------------------------------------------------------------
+
+def transfer_feat_seqs(transfer_from, freeze_at):
     import theano
     import theano.tensor as T
     import lasagne
     from sltools.nn_utils import adjust_length
-    from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn, \
-        autoreload_feats
+    from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn
 
     report = shelve.open(os.path.join(tmpdir, transfer_from))
 
+    if report['meta']['modality'] == "skel":
+        source_feat_seqs = [skel_feat_seqs]
+    elif report['meta']['modality'] == "bgr":
+        source_feat_seqs = [bgr_feat_seqs]
+    elif report['meta']['modality'] == "fusion":
+        source_feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
+    else:
+        raise ValueError()
+
     # no computation required
     if freeze_at == "inputs":
-        return autoreload_feats(report['meta']['modality'])
+        return source_feat_seqs
 
     # reuse cached features
     dump_file = os.path.join(tmpdir, report['meta']['experiment_name']
@@ -193,7 +203,7 @@ def transfer_feats(transfer_from, freeze_at):
               for i, d in enumerate(durations)
               for k in range(0, d - warmup, step)]
     chunked_sequences = []
-    for feat in autoreload_feats(report['meta']['modality']):
+    for feat in source_feat_seqs:
         def get_chunk(i, t1, t2, feat_=feat):
             return adjust_length(feat_[i][t1:t2], size=max_time, pad=0)
 
@@ -231,8 +241,6 @@ def transfer_feats(transfer_from, freeze_at):
 
     return [out_view]
 
-
-# ---------------------------------------------------------------------------------------
 
 def prepare():
     global feat_seqs

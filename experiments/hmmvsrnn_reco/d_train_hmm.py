@@ -87,9 +87,9 @@ elif modality == "fusion":
     from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
-    feat_seqs = transfer_feats(encoder_kwargs['transfer_from'],
-                               encoder_kwargs['freeze_at'])
+    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feat_seqs
+    feat_seqs = transfer_feat_seqs(encoder_kwargs['transfer_from'],
+                                   encoder_kwargs['freeze_at'])
 else:
     raise ValueError()
 
@@ -138,9 +138,9 @@ resume_at = "" if len(resume_at) == 0 else resume_at[-1]
 l_rate = .001
 updates = 'adam'
 loss = 'cross_entropy'
-weight_smoothing = .7
+weight_smoothing = .2 if modality == 'transfer' else .7  # TODO: or not?
 min_progress = .01
-epoch_schedule = [20, 20] + [7] * 14  # <<<< TODO
+epoch_schedule = [20, 20] + [7] * 14
 refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)
 
 # prior training_settings

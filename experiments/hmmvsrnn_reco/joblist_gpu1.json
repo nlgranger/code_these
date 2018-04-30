@@ -295,19 +295,6 @@
     "terminate_at": "embedding"
   }
 },{
-  "name": "hmm_init_skeltc15embedding",
-  "model": "hmm",
-  "modality": "transfer",
-  "variant": "tc15embedding",
-  "notes": "pretrained embedding, _NOT_ frozen",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "transfer_from": "rnn_skel_tc15",
-    "freeze_at": "inputs",
-    "terminate_at": "embedding"
-  }
-},{
   "name": "rnn_bgr_tc15",
   "model": "rnn",
   "modality": "bgr",

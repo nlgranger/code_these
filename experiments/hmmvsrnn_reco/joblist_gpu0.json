@@ -231,7 +231,7 @@
   "max_time": 128,
   "encoder_kwargs": {
     "transfer_from": "hmm_skel_tc15",
-    "freeze_at": "posteriors",
+    "freeze_at": "logits",
     "terminate_at": "posteriors"
   }
 },{

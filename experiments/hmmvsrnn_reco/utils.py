@@ -1,29 +1,7 @@
 import lasagne
 from sltools.models.rnn import build_predict_fn
-from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs, bgr_feat_seqs
-
-
-def autoreload_feats(modality, **kwargs):
-    from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs, bgr_feat_seqs
-
-    if modality == "skel":  # Skeleton end-to-end
-        return [skel_feat_seqs]
-
-    elif modality == "bgr":  # BGR end-to-end
-        return [bgr_feat_seqs]
-
-    elif modality == "fusion":  # Fusion end-to-end
-        return [skel_feat_seqs, bgr_feat_seqs]
-
-    elif modality == "transfer":  # Transfer
-        from experiments.hmmvsrnn_reco.b_preprocess import transfer_feats
-
-        transfer_from = kwargs['transfer_from']
-        freeze_at = kwargs['freeze_at']
-        return transfer_feats(transfer_from, freeze_at)
-
-    else:
-        raise ValueError
+from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs, bgr_feat_seqs, \
+    transfer_feat_seqs
 
 
 def reload_best_rnn(report):
@@ -52,7 +30,9 @@ def reload_best_rnn(report):
 
     elif modality == "transfer":
         from experiments.hmmvsrnn_reco.c_models import transfer_lstm
-        feats = autoreload_feats(modality, **report['args']['encoder_kwargs'])
+        feats = transfer_feat_seqs(
+            report['args']['encoder_kwargs']['transfer_from'],
+            report['args']['encoder_kwargs']['freeze_at'])
         model_dict = transfer_lstm(*[f[0].shape[1:] for f in feats], **report['args'])
 
     else:

@@ -3,7 +3,8 @@ import shelve
 import numpy as np
 import lasagne
 from lasagne.layers import Conv2DLayer, NonlinearityLayer, \
-    ElemwiseSumLayer, GlobalPoolLayer, ReshapeLayer, BatchNormLayer, DropoutLayer
+    ElemwiseSumLayer, GlobalPoolLayer, ReshapeLayer, BatchNormLayer, \
+    DropoutLayer, GaussianNoiseLayer
 from lasagne.nonlinearities import rectify, leaky_rectify
 import theano.tensor as T
 from lproc import SerializableFunc
@@ -216,30 +217,30 @@ def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
 
             l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, softmax)
 
-            # load
+            # load but don't freeze
             for p1, p2 in zip(posterior.l_raw.get_params(), l_logits.get_params()):
                 p2.set_value(p1.get_value())
 
             if terminate_at == "embedding":
-                return {'l_out': l_embedding, 'warmup': 7}  # todo: check warmup
+                return {'l_out': l_embedding, 'warmup': posterior.warmup}
             elif terminate_at == "logits":
-                return {'l_out': l_logits, 'warmup': 7}
+                return {'l_out': l_logits, 'warmup': posterior.warmup}
             if terminate_at == "posteriors":
-                return {'l_out': l_posteriors, 'warmup': 7}
+                return {'l_out': l_posteriors, 'warmup': posterior.warmup}
             else:
                 raise ValueError()
 
         elif freeze_at == "logits":
             # build model
             l_logits = l_in[0]
-            l_logits = lasagne.layers.GaussianNoiseLayer(l_logits, sigma=3)
+            l_logits = GaussianNoiseLayer(l_logits, sigma=4)
 
-            l_posteriors = lasagne.layers.NonlinearityLayer(l_logits, softmax)
+            l_posteriors = NonlinearityLayer(l_logits, softmax)
 
             if terminate_at == "logits":
-                return {'l_out': l_logits, 'warmup': 7}
+                return {'l_out': l_logits, 'warmup': posterior.warmup}
             if terminate_at == "posteriors":
-                return {'l_out': l_posteriors, 'warmup': 7}
+                return {'l_out': l_posteriors, 'warmup': posterior.warmup}
             else:
                 raise ValueError()
 

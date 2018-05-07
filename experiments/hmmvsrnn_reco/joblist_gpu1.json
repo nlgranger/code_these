@@ -1,33 +1,4 @@
 [{
-  "name": "hmm_skel_tc3",
-  "model": "hmm",
-  "modality": "skel",
-  "variant": "tc3",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 3,
-    "filter_dilation": 1,
-    "num_tc_filters": 256,
-    "dropout": 0.1
-  }
-},
-{
-  "name": "rnn_skel_tc3",
-  "model": "rnn",
-  "modality": "skel",
-  "variant": "tc3",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 3,
-    "filter_dilation": 1,
-    "num_tc_filters": 256,
-    "dropout": 0.1
-  }
-},{
   "name": "hmm_skel_tc32",
   "model": "hmm",
   "modality": "skel",
@@ -41,8 +12,7 @@
     "num_tc_filters": 256,
     "dropout": 0.1
   }
-},
-{
+},{
   "name": "rnn_skel_tc32",
   "model": "rnn",
   "modality": "skel",
@@ -53,35 +23,6 @@
   "encoder_kwargs": {
     "tconv_sz": 3,
     "filter_dilation": 2,
-    "num_tc_filters": 256,
-    "dropout": 0.1
-  }
-},{
-  "name": "hmm_skel_tc5",
-  "model": "hmm",
-  "modality": "skel",
-  "variant": "tc5",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 5,
-    "filter_dilation": 1,
-    "num_tc_filters": 256,
-    "dropout": 0.1
-  }
-},
-{
-  "name": "rnn_skel_tc5",
-  "model": "rnn",
-  "modality": "skel",
-  "variant": "tc5",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 5,
-    "filter_dilation": 1,
     "num_tc_filters": 256,
     "dropout": 0.1
   }
@@ -111,88 +52,89 @@
     "tconv_sz": 5,
     "filter_dilation": 2,
     "num_tc_filters": 256,
-    "dropout": 0.2
+    "dropout": 0.1
   }
 },{
-  "name": "hmm_skel_tc15",
+  "name": "hmm_skel_tc92",
   "model": "hmm",
   "modality": "skel",
-  "variant": "tc15",
+  "variant": "tc92",
   "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 15,
-    "filter_dilation": 1,
+    "tconv_sz": 9,
+    "filter_dilation": 2,
+    "num_tc_filters": 256,
+    "dropout": 0.1
+  }
+},
+{
+  "name": "rnn_skel_tc92",
+  "model": "rnn",
+  "modality": "skel",
+  "variant": "tc92",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 9,
+    "filter_dilation": 2,
+    "num_tc_filters": 256,
+    "dropout": 0.1
+  }
+},{
+  "name": "hmm_skel_tc132",
+  "model": "hmm",
+  "modality": "skel",
+  "variant": "tc132",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 13,
+    "filter_dilation": 2,
     "num_tc_filters": 256,
     "dropout": 0.2
   }
 },{
-  "name": "rnn_skel_tc15",
+  "name": "rnn_skel_tc132",
   "model": "rnn",
   "modality": "skel",
-  "variant": "tc15",
+  "variant": "tc132",
   "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 15,
-    "filter_dilation": 1,
+    "tconv_sz": 13,
+    "filter_dilation": 2,
     "num_tc_filters": 256,
     "dropout": 0.2
   }
 },{
-  "name": "hmm_skel_tc23half",
+  "name": "hmm_skel_tc13half",
   "model": "hmm",
   "modality": "skel",
-  "variant": "tc23half",
+  "variant": "tc13half",
   "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 23,
-    "filter_dilation": 1,
-    "num_tc_filters": 128,
-    "dropout": 0.1
-  }
-},{
-  "name": "rnn_skel_tc23half",
-  "model": "rnn",
-  "modality": "skel",
-  "variant": "tc23half",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 23,
+    "tconv_sz": 13,
     "filter_dilation": 1,
     "num_tc_filters": 128,
     "dropout": 0.2
   }
 },{
-  "name": "hmm_skel_tc17half",
-  "model": "hmm",
-  "modality": "skel",
-  "variant": "tc17half",
-  "notes": "",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "tconv_sz": 17,
-    "filter_dilation": 1,
-    "num_tc_filters": 128,
-    "dropout": 0.1
-  }
-},{
-  "name": "rnn_skel_tc17half",
+  "name": "rnn_skel_tc13half",
   "model": "rnn",
   "modality": "skel",
-  "variant": "tc17half",
+  "variant": "tc13half",
   "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 17,
+    "tconv_sz": 13,
     "filter_dilation": 1,
     "num_tc_filters": 128,
     "dropout": 0.2
@@ -226,60 +168,88 @@
     "dropout": 0.2
   }
 },{
-  "name": "hmm_skel_tc7half",
+  "name": "hmm_skel_tc21",
   "model": "hmm",
   "modality": "skel",
-  "variant": "tc7_half",
-  "notes": "only half the filters to be fair with 32",
+  "variant": "tc21",
+  "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 7,
+    "tconv_sz": 21,
     "filter_dilation": 1,
-    "num_tc_filters": 128,
-    "dropout": 0.1
+    "num_tc_filters": 256,
+    "dropout": 0.3
   }
 },{
-  "name": "rnn_skel_tc7half",
+  "name": "rnn_skel_tc21",
   "model": "rnn",
   "modality": "skel",
-  "variant": "tc7_half",
-  "notes": "only half the filters to be fair with 32",
+  "variant": "tc21",
+  "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 31,
+    "tconv_sz": 21,
     "filter_dilation": 1,
-    "num_tc_filters": 128,
-    "dropout": 0.1
+    "num_tc_filters": 256,
+    "dropout": 0.3
   }
 },{
-  "name": "hmm_skel_tc15half",
+  "name": "hmm_skel_tc29",
   "model": "hmm",
   "modality": "skel",
-  "variant": "tc15_half",
-  "notes": "only half the filters to be fair with 72",
+  "variant": "tc29",
+  "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 15,
+    "tconv_sz": 29,
     "filter_dilation": 1,
-    "num_tc_filters": 128,
-    "dropout": 0.2
+    "num_tc_filters": 256,
+    "dropout": 0.3
   }
 },{
-  "name": "rnn_skel_tc15half",
+  "name": "rnn_skel_tc29",
   "model": "rnn",
   "modality": "skel",
-  "variant": "tc15_half",
-  "notes": "only half the filters to be fair with 72",
+  "variant": "tc29",
+  "notes": "",
   "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 15,
+    "tconv_sz": 29,
+    "filter_dilation": 1,
+    "num_tc_filters": 256,
+    "dropout": 0.3
+  }
+},{
+  "name": "hmm_skel_tc29half",
+  "model": "hmm",
+  "modality": "skel",
+  "variant": "tc29half",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 29,
     "filter_dilation": 1,
     "num_tc_filters": 128,
-    "dropout": 0.2
+    "dropout": 0.3
+  }
+},{
+  "name": "rnn_skel_tc29half",
+  "model": "rnn",
+  "modality": "skel",
+  "variant": "tc29half",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 29,
+    "filter_dilation": 1,
+    "num_tc_filters": 128,
+    "dropout": 0.3
   }
 },{
   "name": "hmm_transfer_skeltc15embedding",
@@ -329,5 +299,31 @@
       "num_tc_filters": 256,
       "dropout": 0.0
     }
+  }
+},{
+  "name": "rnn_transfer_bgrtc15posteriors",
+  "model": "rnn",
+  "modality": "transfer",
+  "variant": "bgrtc15posteriors",
+  "notes": "pretrained logits, frozen",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "transfer_from": "hmm_bgr_tc15",
+    "freeze_at": "logits",
+    "terminate_at": "posteriors"
+  }
+},{
+  "name": "hmm_transfer_bgrtc15embedding",
+  "model": "hmm",
+  "modality": "transfer",
+  "variant": "bgrtc15embedding",
+  "notes": "pretrained embedding, frozen",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "transfer_from": "rnn_bgr_tc15",
+    "freeze_at": "embedding",
+    "terminate_at": "embedding"
   }
 }]

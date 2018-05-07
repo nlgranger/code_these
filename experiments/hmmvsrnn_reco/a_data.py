@@ -7,7 +7,7 @@ import pickle as pkl
 import numpy as np
 from numpy.random import uniform
 from scipy.ndimage.filters import gaussian_filter1d
-from lproc import rmap
+import seqtools
 
 from sltools.preprocess import interpolate_positions
 from sltools.transform import Transformation, transform_durations, transform_glosses, \
@@ -72,9 +72,9 @@ def prepare():
         logging.warning("Eliminated sequences with invalid glosses: {}".format(rejected))
 
     # Interpolate missing poses and eliminate deteriorated training sequences
-    invalid_masks = rmap(detect_invalid_pts, pose2d_seqs)
-    pose2d_seqs = rmap(interpolate_positions, pose2d_seqs, invalid_masks)
-    pose3d_seqs = rmap(interpolate_positions, pose3d_seqs, invalid_masks)
+    invalid_masks = seqtools.smap(detect_invalid_pts, pose2d_seqs)
+    pose2d_seqs = seqtools.smap(interpolate_positions, pose2d_seqs, invalid_masks)
+    pose3d_seqs = seqtools.smap(interpolate_positions, pose3d_seqs, invalid_masks)
 
     rejected = np.where([np.mean(im[:, important_joints]) > .15
                          for im in invalid_masks])[0]
@@ -84,10 +84,10 @@ def prepare():
                         .format(len(rejected)))
 
     # Default preprocessing
-    ref2d = rmap(get_ref_pts, pose2d_seqs)
-    ref3d = rmap(get_ref_pts, pose3d_seqs)
+    ref2d = seqtools.add_cache(seqtools.smap(get_ref_pts, pose2d_seqs), cache_size=1)
+    ref3d = seqtools.add_cache(seqtools.smap(get_ref_pts, pose3d_seqs), cache_size=1)
 
-    zshifts = np.array([tgt_dist - rp[:, 2].mean() for rp in ref3d])
+    zshifts = seqtools.smap(lambda rp: np.mean(tgt_dist - rp[:, 2]), ref3d)
 
     transformations = [
         (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r]))
@@ -122,6 +122,7 @@ def prepare():
         train_subset = np.concatenate([train_subset,
                                        np.arange(offset, len(transformations))])
 
+    # Apply transformations (if they are cheap to compute)
     durations = np.array([transform_durations(dataset.durations(r), t)
                           for r, t in transformations])
 
@@ -159,8 +160,12 @@ def reload():
         np.load(os.path.join(tmpdir, "pose3d_seqs.npy"), mmap_mode='r'),
         segments)
 
-    frame_seqs = rmap(lambda rt: np.array(dataset.bgr_frames(rt[0])), transformations)
-    frame_seqs = rmap(transform_frames, frame_seqs, [t for _, t in transformations])
+    frame_seqs = seqtools.smap(
+        lambda rt: dataset.bgr_frames(rt[0]),
+        transformations)
+    frame_seqs = seqtools.smap(
+        transform_frames,
+        frame_seqs, [t for _, t in transformations])
 
 
 if __name__ == "__main__":

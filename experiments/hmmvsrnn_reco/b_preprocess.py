@@ -127,7 +127,7 @@ def skel_feat(pose_seq):
 def bgr_feats(frame_seq, pose2d_seq):
     d = len(pose2d_seq)
     cropw, croph = crop_size
-    crop_seq = np.empty((d, 2, cropw + 30, croph + 30, 3), dtype=frame_seq.dtype)
+    crop_seq = np.empty((d, 2, cropw + 30, croph + 30, 3), dtype=np.uint8)
     for c, f, p in zip(crop_seq, frame_seq, pose2d_seq):
         c[1] = crop(f, p[joints.WristLeft], (cropw + 30, croph + 30))
         c[0] = crop(f, p[joints.WristRight], (cropw + 30, croph + 30))

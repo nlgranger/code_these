@@ -141,10 +141,10 @@ class VideoSequence(Sequence):
             return sliced
 
         else:
-            t = self.start + item if item >= 0 else self.stop + item
-
-            if t < 0 or t >= self.video.get(cv2.CAP_PROP_FRAME_COUNT):
+            if item < -len(self) or item >= len(self):
                 raise IndexError("Video frame {} is out of range.".format(item))
+
+            t = self.start + item if item >= 0 else self.stop + item
 
             if self.video.get(cv2.CAP_PROP_POS_FRAMES) != t:
                 self.video.set(cv2.CAP_PROP_POS_FRAMES, t)

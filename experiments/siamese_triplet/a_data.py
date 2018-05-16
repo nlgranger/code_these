@@ -5,7 +5,6 @@ import logging
 import pickle as pkl
 
 import numpy as np
-from numpy.lib.format import open_memmap
 from numpy.random import uniform
 from scipy.ndimage.filters import gaussian_filter1d
 import seqtools
@@ -13,7 +12,6 @@ import seqtools
 from sltools.preprocess import interpolate_positions
 from sltools.transform import Transformation, transform_durations, \
     transform_pose2d, transform_pose3d, transform_frames
-from sltools.utils import split_seq, join_seqs
 
 # from datasets import chalearn2014 as dataset
 from datasets import devisign as dataset
@@ -27,9 +25,8 @@ frame_seqs = None
 durations = None
 labels = None
 recordings = None
-transformations = None
 joints = dataset.JointType
-vocabulary = np.arange(1, 21)
+vocabulary = None
 
 tgt_dist = 4  # desired apparent distance (in meters?) from camera to subject
 important_joints = np.isin(np.arange(dataset.positions(0).shape[1]),
@@ -51,8 +48,8 @@ def get_ref_pts(pose_seq):
 
 
 def prepare():
-    global train_subset, val_subset, test_subset, labels, durations, \
-        recordings, transformations, pose2d_seqs, pose3d_seqs
+    global train_subset, val_subset, test_subset, labels, durations, vocabulary, \
+        recordings, pose2d_seqs, pose3d_seqs
 
     # Create temporary directory
     if not os.path.exists(cachedir):
@@ -107,21 +104,16 @@ def prepare():
     #                for seq, _, start, stop in subseqs]
 
     # Devisign
-    pose2d_seqs = [dataset.positions(i).astype(np.float32) for i in range(len(dataset))]
-    pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
     durations = np.array([dataset.durations(r) for r in range(len(dataset))])
     labels = np.array([dataset.label(r) for r in range(len(dataset))])
-    signers = np.array([dataset.subject(r) for r in range(len(dataset))])
-    shuffled_labels = np.unique(labels)
-    train_subset = np.where(np.isin(signers, [1, 2, 5, 6])
-                            * np.isin(labels, shuffled_labels[:1000]))[0]
-    val_subset = np.where(np.isin(signers, [3, 4, 7, 8])
-                          * np.isin(labels, shuffled_labels[1000:]))[0]
-    test_subset = np.array([], dtype=np.int64)
-
-    pose2d_seqs = [dataset.positions(i).astype(np.float32)
-                   for i in range(len(dataset))]
+    vocabulary = np.unique(labels)
+    train_subset = np.where(np.isin(labels, vocabulary[:1000]))[0]
+    val_subset = np.where(np.isin(labels, vocabulary[1000:1500]))[0]
+    test_subset = np.where(np.isin(labels, vocabulary[1500:]))[0]
+    pose2d_seqs = [dataset.positions(i) for i in range(len(dataset))]
     pose3d_seqs = [dataset.positions_3d(i) for i in range(len(dataset))]
+
+    # Interpolate missing poses and eliminate deteriorated training sequences
     invalid_masks = seqtools.smap(detect_invalid_pts, pose2d_seqs)
     pose2d_seqs = seqtools.smap(interpolate_positions, pose2d_seqs, invalid_masks)
     pose3d_seqs = seqtools.smap(interpolate_positions, pose3d_seqs, invalid_masks)
@@ -134,12 +126,12 @@ def prepare():
                         .format(len(rejected)))
 
     # Default preprocessing
-    ref2d = seqtools.smap(get_ref_pts, pose2d_seqs)
-    ref3d = seqtools.smap(get_ref_pts, pose3d_seqs)
+    ref2d = seqtools.add_cache(seqtools.smap(get_ref_pts, pose2d_seqs), cache_size=1)
+    ref3d = seqtools.add_cache(seqtools.smap(get_ref_pts, pose3d_seqs), cache_size=1)
 
-    zshifts = np.array([tgt_dist - rp[:, 2].mean() for rp in ref3d])
+    zshifts = seqtools.smap(lambda rp: np.mean(tgt_dist - rp[:, 2]), ref3d)
 
-    recordings = np.arange(len(labels))
+    recordings = np.arange(len(pose2d_seqs))
     transformations = [
         Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r])
         for r in recordings]
@@ -174,11 +166,11 @@ def prepare():
         train_subset = np.concatenate([train_subset,
                                        np.arange(offset, len(transformations))])
 
-    # Precompute some augmentated values, save video transformation for later
+    # Apply transformations (if they are cheap to compute)
     durations = np.array([transform_durations(durations[r], t)
                           for r, t in zip(recordings, transformations)])
 
-    labels = np.array([labels[r] for r in recordings])
+    labels = labels[recordings]
 
     pose2d_seqs = seqtools.gather(pose2d_seqs, recordings)
     pose2d_seqs = seqtools.smap(transform_pose2d, pose2d_seqs, transformations)
@@ -187,29 +179,8 @@ def prepare():
     pose3d_seqs = seqtools.smap(transform_pose3d, pose3d_seqs, transformations)
 
     # Export
-    total_duration = sum(durations)
-    subsequences = np.stack([np.cumsum(durations) - durations,
-                             np.cumsum(durations)], axis=1)
-
-    feat_size = pose2d_seqs[0].shape[1:]
-    dump_file = os.path.join(cachedir, "pose2d_seqs.npy")
-    storage = open_memmap(dump_file, 'w+', dtype=np.float32,
-                          shape=(total_duration,) + feat_size)
-    seqs_storage = split_seq(storage, subsequences)
-    for i, s in enumerate(seqtools.prefetch(pose2d_seqs, 2, 20)):
-        seqs_storage[i][...] = s
-
-    feat_size = pose3d_seqs[0].shape[1:]
-    dump_file = os.path.join(cachedir, "pose3d_seqs.npy")
-    storage = open_memmap(dump_file, 'w+', dtype=np.float32,
-                          shape=(total_duration,) + feat_size)
-    seqs_storage = split_seq(storage, subsequences)
-    for i, s in enumerate(seqtools.prefetch(pose3d_seqs, 2, 20)):
-        seqs_storage[i][...] = s
-
-    train_subset = train_subset.astype(np.int32)
-    val_subset = val_subset.astype(np.int32)
-    test_subset = test_subset.astype(np.int32)
+    np.save(os.path.join(cachedir, "pose2d_seqs.npy"), seqtools.concatenate(pose2d_seqs))
+    np.save(os.path.join(cachedir, "pose3d_seqs.npy"), seqtools.concatenate(pose3d_seqs))
 
     with open(os.path.join(cachedir, "data.pkl"), 'wb') as f:
         pkl.dump((durations, labels, recordings, transformations,
@@ -220,8 +191,7 @@ def prepare():
 
 def reload():
     global train_subset, val_subset, test_subset, \
-        durations, labels, recordings, transformations, \
-        pose2d_seqs, pose3d_seqs, frame_seqs
+        durations, labels, recordings, pose2d_seqs, pose3d_seqs, frame_seqs
 
     with open(os.path.join(cachedir, "data.pkl"), 'rb') as f:
         durations, labels, recordings, transformations, \
@@ -230,11 +200,11 @@ def reload():
     segments = np.stack([np.cumsum(durations) - durations,
                          np.cumsum(durations)], axis=1)
 
-    pose2d_seqs = split_seq(
+    pose2d_seqs = seqtools.split(
         np.load(os.path.join(cachedir, "pose2d_seqs.npy"), mmap_mode='r'),
         segments)
 
-    pose3d_seqs = split_seq(
+    pose3d_seqs = seqtools.split(
         np.load(os.path.join(cachedir, "pose3d_seqs.npy"), mmap_mode='r'),
         segments)
 

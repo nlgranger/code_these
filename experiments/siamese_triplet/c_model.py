@@ -78,12 +78,8 @@ def skel_rnn(feats_shape, batch_size, max_time, encoder_kwargs):
 
     l_linout = DenseLayer(
         l_cc1, num_units=72,
-        nonlinearity=tanh,
+        nonlinearity=None,
         name="l_linout")
-
-    # l_linout = ExpressionLayer(
-    #     l_linout,
-    #     lambda x: x / (x.norm(2, axis=1).dimshuffle(0, 'x') + 0.01))
 
     return {
         'l_in': [l_in],

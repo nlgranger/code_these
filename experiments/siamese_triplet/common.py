@@ -4,8 +4,28 @@ from theano import tensor as T
 import lasagne
 import scipy.spatial.distance
 
-from sltools.nn_utils import adjust_length, cdist, logsumexp, log_softmax, \
-    categorical_crossentropy_logdomain
+from sltools.nn_utils import adjust_length, cdist, logsumexp, log_softmax
+
+
+def sample_pairs(labels, recordings, vocabulary, n, pos_rate):
+    where_labels = {l: np.where(labels == l)[0] for l in vocabulary}
+    where_not_labels = {l: np.where(labels != l)[0] for l in vocabulary}
+
+    pairs = np.empty((n, 2), dtype=np.int32)
+    pairs[:, 0] = np.arange(n) % len(labels)
+    targets = (np.random.rand(n) < pos_rate).astype(np.int32)
+
+    for i in range(n):
+        label = labels[pairs[i, 0]]
+        if targets[i] > 0:
+            wl = where_labels[label]
+            compatible = recordings[wl] != recordings[i % len(labels)]
+            wl = wl[compatible]
+            pairs[i, 1] = np.random.choice(wl)
+        else:
+            pairs[i, 1] = np.random.choice(where_not_labels[label])
+
+    return pairs, targets
 
 
 def sample_triplets(labels, recordings, vocabulary, n):
@@ -14,16 +34,15 @@ def sample_triplets(labels, recordings, vocabulary, n):
 
     triplets = np.empty((n, 3), dtype=np.int32)
 
-    triplets[:, 0] = labels[np.arange(n) % len(labels)]
+    triplets[:, 0] = np.arange(n) % len(labels)
 
     for i in range(n):
-        wl = where_labels[triplets[i, 0]]
-        compatible = recordings[wl] != recordings[triplets[i, 0]]
+        label = labels[triplets[i, 0]]
+        wl = where_labels[label]
+        compatible = recordings[wl] != recordings[i % len(labels)]
         wl = wl[compatible]
         triplets[i, 1] = np.random.choice(wl)
-
-    for i in range(n):
-        triplets[i, 2] = np.random.choice(where_not_labels[triplets[i, 0]])
+        triplets[i, 2] = np.random.choice(where_not_labels[label])
 
     return np.random.permutation(triplets)
 
@@ -34,7 +53,7 @@ def sample_episode(labels, recordings, vocabulary, voca_size, shots, test_size=N
     :param labels:
         labels from the training set
     :param recordings:
-        indexes shared by all variations of an augmented sequence
+        unique ids to exclude augmented variations of a same original recording
     :param vocabulary:
         unique labels
     :param voca_size:
@@ -52,9 +71,12 @@ def sample_episode(labels, recordings, vocabulary, voca_size, shots, test_size=N
     """
     ep_vocabulary = np.random.choice(vocabulary, size=voca_size, replace=False)
 
-    ep_train_subset = []
-    ep_test_subset = []
-    for l in ep_vocabulary:
+    ep_train_subset = np.empty((voca_size * shots), dtype=np.int32)
+    ep_train_labels = np.empty((voca_size * shots), dtype=np.int32)
+    ep_test_subset = np.empty((test_size,), dtype=np.int32)
+    ep_test_labels = np.empty((test_size,), dtype=np.int32)
+
+    for i, l in enumerate(ep_vocabulary):
         where_label = np.random.permutation(np.where(labels == l)[0])
         non_redundants = np.invert(np.isin(recordings[where_label[shots:]],
                                            recordings[where_label[:shots]]))
@@ -69,6 +91,34 @@ def sample_episode(labels, recordings, vocabulary, voca_size, shots, test_size=N
     ep_test_labels = ep_test_labels.astype(np.int32)
 
     return ep_train_subset, ep_test_subset, ep_test_labels
+
+
+def pairs2minibatches(feat_seqs, durations, pairs, labels, batch_size, max_time):
+    feat_seqs = [seqtools.smap(lambda s: adjust_length(s, max_time), f)
+                 for f in feat_seqs]
+    durations = np.fmin(durations, max_time)
+    pairs = np.asarray(pairs)
+
+    # maximum number of triplet elements by batch
+    actual_batch_size = batch_size - batch_size % 2
+    n_batches = len(pairs) * 2 // actual_batch_size
+
+    flat_pairs = np.ravel(pairs)[:n_batches * actual_batch_size]  # drop last batch
+
+    batched_indexes = np.zeros((n_batches, batch_size), dtype=pairs.dtype)
+    batched_indexes[:, :actual_batch_size] = np.reshape(
+        flat_pairs, (n_batches, actual_batch_size))
+
+    feat_batches = [
+        seqtools.smap(
+            lambda b, f=f: np.stack(seqtools.gather(f, b), axis=0),
+            batched_indexes)
+        for f in feat_seqs]
+    label_batches = np.reshape(labels[:n_batches * actual_batch_size],
+                               (n_batches, batch_size // 2))
+    duration_batches = durations[batched_indexes]
+
+    return seqtools.collate(feat_batches + [label_batches, duration_batches])
 
 
 def triplets2minibatches(feat_seqs, durations, triplets, batch_size, max_time):
@@ -108,6 +158,15 @@ def episode2minibatch(episode, feat_seqs, durations, max_time):
                            max_time)
 
     return tuple([*episode_feats, ep_durations, ep_labels])
+
+
+def contrastive_loss(linout, labels, margin):
+    x1 = linout[0::2]
+    x2 = linout[1::2]
+    dists = (x1 - x2).norm(2, axis=1)
+    return T.switch(T.gt(labels, 0.5),
+                    T.pow(dists, 2),
+                    T.pow(T.maximum(margin - dists, 0.0), 2))
 
 
 def triplet_loss(linout, delta=1., metric='euclidean', clip=1.0, p=None):

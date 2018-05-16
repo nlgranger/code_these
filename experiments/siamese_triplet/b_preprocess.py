@@ -1,7 +1,6 @@
 #!/bin/env python3
 
 import os
-from datetime import timedelta
 from time import time
 from itertools import combinations
 
@@ -154,7 +153,7 @@ def prepare():
     skel_dump_file = os.path.join(cachedir, 'skel_seqs.npy')
     storage = open_memmap(skel_dump_file, 'w+', dtype=np.float32,
                           shape=(total_duration,) + feat_size)
-    seqs_storage = split_seq(storage, subsequences)
+    seqs_storage = seqtools.split(storage, subsequences)
 
     print("computing feats .... eta ..:..", end="", flush=True)
     t1 = time()
@@ -186,19 +185,19 @@ def prepare():
     #     storage[:, a:b] /= s
 
     # Processing pipeline for BGR frames
-    feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)
-
+    # feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)
+    #
     # Export to file
-    feat_size = feat_seqs[0][0].shape
-    print("feat size: {}".format(feat_size))
-    total_duration = sum(durations)
-    subsequences = np.stack([np.cumsum(durations) - durations,
-                             np.cumsum(durations)], axis=1)
-    bgr_dump_file = os.path.join(cachedir, 'bgr_seqs.npy')
-    storage = open_memmap(bgr_dump_file, 'w+', dtype=np.float32,
-                          shape=(total_duration,) + feat_size)
-    seqs_storage = split_seq(storage, subsequences)
-
+    # feat_size = feat_seqs[0][0].shape
+    # print("feat size: {}".format(feat_size))
+    # total_duration = sum(durations)
+    # subsequences = np.stack([np.cumsum(durations) - durations,
+    #                          np.cumsum(durations)], axis=1)
+    # bgr_dump_file = os.path.join(cachedir, 'bgr_seqs.npy')
+    # storage = open_memmap(bgr_dump_file, 'w+', dtype=np.float32,
+    #                       shape=(total_duration,) + feat_size)
+    # seqs_storage = seqtools.split(storage, subsequences)
+    #
     # print("computing feats .... eta ..:..:..", end="", flush=True)
     # t1 = time()
     # for i, f in enumerate(feat_seqs):

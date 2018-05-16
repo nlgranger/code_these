@@ -4,6 +4,8 @@ from scipy.interpolate import interp1d
 
 
 def interpolate_positions(p, invalid, kind='cubic'):
+    p = np.asarray(p, dtype=np.float32)
+
     if not np.any(invalid):
         return p
 

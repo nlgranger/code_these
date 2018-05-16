@@ -12,12 +12,12 @@ import seqtools
 from sltools.preprocess import interpolate_positions
 from sltools.transform import Transformation, transform_durations, transform_glosses, \
     transform_pose2d, transform_pose3d, transform_frames
-from sltools.utils import split_seq, join_seqs
+from sltools.utils import split_seq
 
 from datasets import chalearn2014 as dataset
 
 
-tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache")
+tmpdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache.run1")
 gloss_seqs = None
 train_subset, val_subset, test_subset = None, None, None
 pose2d_seqs = None
@@ -89,11 +89,12 @@ def prepare():
 
     zshifts = seqtools.smap(lambda rp: np.mean(tgt_dist - rp[:, 2]), ref3d)
 
+    recordings = np.arange(len(pose2d_seqs))
     transformations = [
-        (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r]))
-        for r in np.arange(len(dataset))]
+        Transformation(ref2d=ref2d[r], ref3d=ref3d[r], zshift=zshifts[r])
+        for r in recordings]
 
-    # Augment training set
+    # Precompute transformations for augmentation of the training set
     original_train_subset = train_subset
     flip_mapping = ([joints.ShoulderRight, joints.ElbowRight,
                      joints.WristRight, joints.HandRight, joints.ShoulderLeft,
@@ -110,34 +111,38 @@ def prepare():
 
     for _ in range(5 - 1):
         offset = len(transformations)
+        recordings = np.concatenate([recordings, original_train_subset])
         transformations += [
-            (r, Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
-                               frame_width=dataset.bgr_frames(0)[0].shape[1],
-                               fliplr=uniform() < 0.15,
-                               tilt=uniform(-7, 7) * np.pi / 180,
-                               zshift=zshifts[r],
-                               xscale=uniform(.85, 1.15), yscale=uniform(.85, 1.15),
-                               zscale=uniform(.85, 1.15), tscale=uniform(.7, 1.3)))
+            Transformation(ref2d=ref2d[r], ref3d=ref3d[r], flip_mapping=flip_mapping,
+                           frame_width=640,
+                           fliplr=uniform() < 0.15,
+                           tilt=uniform(-7, 7) * np.pi / 180,
+                           zshift=zshifts[r],
+                           xscale=uniform(.85, 1.15), yscale=uniform(.85, 1.15),
+                           zscale=uniform(.85, 1.15), tscale=uniform(.7, 1.3))
             for r in original_train_subset]
         train_subset = np.concatenate([train_subset,
                                        np.arange(offset, len(transformations))])
 
     # Apply transformations (if they are cheap to compute)
-    durations = np.array([transform_durations(dataset.durations(r), t)
-                          for r, t in transformations])
+    durations = np.array([transform_durations(durations[r], t)
+                          for r, t in zip(recordings, transformations)])
 
     gloss_seqs = [transform_glosses(dataset.glosses(r), dataset.durations(r), t)
-                  for r, t in transformations]
+                  for r, t in zip(recordings, transformations)]
 
-    pose2d_seqs = [transform_pose2d(pose2d_seqs[r], t) for r, t in transformations]
-    pose3d_seqs = [transform_pose3d(pose3d_seqs[r], t) for r, t in transformations]
+    pose2d_seqs = seqtools.gather(pose2d_seqs, recordings)
+    pose2d_seqs = seqtools.smap(transform_pose2d, pose2d_seqs, transformations)
+
+    pose3d_seqs = seqtools.gather(pose3d_seqs, recordings)
+    pose3d_seqs = seqtools.smap(transform_pose3d, pose3d_seqs, transformations)
 
     # Export
-    np.save(os.path.join(tmpdir, "pose2d_seqs.npy"), join_seqs(pose2d_seqs)[0])
-    np.save(os.path.join(tmpdir, "pose3d_seqs.npy"), join_seqs(pose3d_seqs)[0])
+    np.save(os.path.join(tmpdir, "pose2d_seqs.npy"), seqtools.concatenate(pose2d_seqs))
+    np.save(os.path.join(tmpdir, "pose3d_seqs.npy"), seqtools.concatenate(pose3d_seqs))
 
     with open(os.path.join(tmpdir, "data.pkl"), 'wb') as f:
-        pkl.dump((durations, gloss_seqs, transformations,
+        pkl.dump((durations, gloss_seqs, recordings, transformations,
                   train_subset, val_subset, test_subset), f)
 
 
@@ -152,11 +157,11 @@ def reload():
     segments = np.stack([np.cumsum(durations) - durations,
                          np.cumsum(durations)], axis=1)
 
-    pose2d_seqs = split_seq(
+    pose2d_seqs = seqtools.split(
         np.load(os.path.join(tmpdir, "pose2d_seqs.npy"), mmap_mode='r'),
         segments)
 
-    pose3d_seqs = split_seq(
+    pose3d_seqs = seqtools.split(
         np.load(os.path.join(tmpdir, "pose3d_seqs.npy"), mmap_mode='r'),
         segments)
 

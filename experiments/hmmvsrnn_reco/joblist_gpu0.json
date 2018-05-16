@@ -253,6 +253,42 @@
     "dropout": 0.3
   }
 },{
+  "name": "hmm_bgr_tc15",
+  "model": "hmm",
+  "modality": "bgr",
+  "variant": "tc15",
+  "notes": "",
+  "batch_size": 12,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 15,
+    "filter_dilation": 1,
+    "num_tc_filters": 256,
+    "dropout": 0.2
+  }
+},{
+  "name": "rnn_fusion_tc15",
+  "model": "rnn",
+  "modality": "fusion",
+  "variant": "tc15",
+  "notes": "",
+  "batch_size": 12,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "skel_kwargs": {
+      "tconv_sz": 15,
+      "filter_dilation": 1,
+      "num_tc_filters": 256,
+      "dropout": 0.2
+    },
+    "bgr_kwargs": {
+      "tconv_sz": 15,
+      "filter_dilation": 1,
+      "num_tc_filters": 256,
+      "dropout": 0.0
+    }
+  }
+},{
   "name": "hmm_transfer_skeltc15embedding",
   "model": "hmm",
   "modality": "transfer",
@@ -292,39 +328,29 @@
     "terminate_at": "posteriors"
   }
 },{
-  "name": "hmm_bgr_tc15",
-  "model": "hmm",
-  "modality": "bgr",
-  "variant": "tc15",
-  "notes": "",
-  "batch_size": 12,
+  "name": "rnn_transfer_bgrtc15embedding",
+  "model": "rnn",
+  "modality": "transfer",
+  "variant": "bgrtc15embedding",
+  "notes": "pretrained embedding, frozen",
+  "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "tconv_sz": 15,
-    "filter_dilation": 1,
-    "num_tc_filters": 256,
-    "dropout": 0.2
+    "transfer_from": "hmm_bgr_tc15",
+    "freeze_at": "embedding",
+    "terminate_at": "embedding"
   }
 },{
-  "name": "rnn_fusion_tc15",
+  "name": "rnn_transfer_bgrtc15posteriors",
   "model": "rnn",
-  "modality": "fusion",
-  "variant": "tc15",
-  "notes": "",
-  "batch_size": 12,
+  "modality": "transfer",
+  "variant": "bgrtc15posteriors",
+  "notes": "pretrained logits, frozen",
+  "batch_size": 16,
   "max_time": 128,
   "encoder_kwargs": {
-    "skel_kwargs": {
-      "tconv_sz": 15,
-      "filter_dilation": 1,
-      "num_tc_filters": 256,
-      "dropout": 0.2
-    },
-    "bgr_kwargs": {
-      "tconv_sz": 15,
-      "filter_dilation": 1,
-      "num_tc_filters": 256,
-      "dropout": 0.0
-    }
+    "transfer_from": "hmm_bgr_tc15",
+    "freeze_at": "logits",
+    "terminate_at": "posteriors"
   }
 }]

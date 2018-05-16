@@ -252,19 +252,6 @@
     "dropout": 0.3
   }
 },{
-  "name": "hmm_transfer_skeltc15embedding",
-  "model": "hmm",
-  "modality": "transfer",
-  "variant": "tc15embedding",
-  "notes": "pretrained embedding, frozen",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "transfer_from": "rnn_skel_tc15",
-    "freeze_at": "embedding",
-    "terminate_at": "embedding"
-  }
-},{
   "name": "rnn_bgr_tc15",
   "model": "rnn",
   "modality": "bgr",
@@ -299,19 +286,6 @@
       "num_tc_filters": 256,
       "dropout": 0.0
     }
-  }
-},{
-  "name": "rnn_transfer_bgrtc15posteriors",
-  "model": "rnn",
-  "modality": "transfer",
-  "variant": "bgrtc15posteriors",
-  "notes": "pretrained logits, frozen",
-  "batch_size": 16,
-  "max_time": 128,
-  "encoder_kwargs": {
-    "transfer_from": "hmm_bgr_tc15",
-    "freeze_at": "logits",
-    "terminate_at": "posteriors"
   }
 },{
   "name": "hmm_transfer_bgrtc15embedding",

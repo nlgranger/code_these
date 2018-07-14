@@ -214,7 +214,7 @@ def train_one_epoch(report_key):
         chunked_sequences, batch_size, drop_last=True,
         collate_fn=collate)
     minibatches = seqtools.prefetch(
-        minibatches, nworkers=2, max_buffered=10)
+        minibatches, max_cached=10, nworkers=2)
 
     # train
     t = time.time()

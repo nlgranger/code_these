@@ -281,13 +281,6 @@ def prepare():
     s = np.std(storage[train_mask, :], axis=0, keepdims=True)
     storage[:, :] -= m
     storage[:, :] /= s
-    # Modality-wise normalization (helps visualize)
-    # for a, b in [(0, 4), (4, 20), (20, 47), (47, 74),
-    #              (74, 110), (110, 218), (218, 245), (245, 248)]:
-    #     m = np.mean(storage[train_mask, a:b], keepdims=True)
-    #     s = np.std(storage[train_mask, a:b], keepdims=True)
-    #     storage[:, a:b] -= m
-    #     storage[:, a:b] /= s
 
     # Processing pipeline for BGR frames
     feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)

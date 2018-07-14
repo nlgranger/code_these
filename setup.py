@@ -11,9 +11,9 @@ setup(
     version='0.0.1.dev0',
     description='The source code for the paper: Comparing Hybrid NN-HMM and RNN for '
                 'temporal modeling in gesture models',
-    packages=['ch14dataset', 'sltools'],
+    packages=['datasets', 'sltools', 'experiments'],
     install_requires=['numpy', 'scipy', 'scikit-learn', 'theano', 'pomegranate',
-                      'lasagne', 'matplotlib', 'cython', 'lproc', 'seqtools'],
+                      'lasagne', 'matplotlib', 'cython', 'lproc', 'seqtools', 'av'],
     ext_modules=cythonize(extensions),
     include_dirs=[np.get_include()],
     url='https://github.com/pixelou/SLTools',

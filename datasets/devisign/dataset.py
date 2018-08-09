@@ -1,6 +1,7 @@
 import os
 import enum
 import numpy as np
+import seqtools
 from .recording import Recording
 
 
@@ -44,40 +45,39 @@ class DEVISIGNDataset:
     def __len__(self):
         return len(self.rec_info)
 
-    def _get_rec_wrapper(self, i):
-        signer, sess, date, label, _, _ = self.rec_info[i]
+    @property
+    def poses(self) -> np.ndarray:
+        return seqtools.split(self._poses_2d, self.rec_info['skel_data_off'][1:])
 
-        return Recording(self._datadir,
-                         signer, label, sess, date)
+    @property
+    def poses_3d(self) -> np.ndarray:
+        return seqtools.split(self._poses_3d, self.rec_info['skel_data_off'][1:])
 
-    def positions(self, recording) -> np.ndarray:
-        duration = self.rec_info['duration'][recording]
-        skel_data_off = self.rec_info['skel_data_off'][recording]
+    @property
+    def durations(self):
+        return self.rec_info['duration']
 
-        return np.array(self._poses_2d[skel_data_off:skel_data_off + duration, :, ],
-                        np.int32)
+    @property
+    def subjects(self):
+        return self.rec_info['signer']
 
-    def positions_3d(self, recording) -> np.ndarray:
-        duration = self.rec_info['duration'][recording]
-        skel_data_off = self.rec_info['skel_data_off'][recording]
+    @property
+    def labels(self):
+        return self.rec_info['label']
 
-        return np.array(self._poses_3d[skel_data_off:skel_data_off + duration, :, ],
-                        np.float32)
+    @property
+    def bgr_frames(self):
+        return seqtools.starmap(
+            lambda signer, sess, date, label, duration, skel_dat_off:
+                Recording(self._datadir, signer, label, sess, date).bgr_frames(),
+            self.rec_info)
 
-    def durations(self, recording):
-        return self.rec_info['duration'][recording]
-
-    def subject(self, recording):
-        return self.rec_info['signer'][recording]
-
-    def label(self, recording):
-        return self.rec_info['label'][recording]
-
-    def bgr_frames(self, recording):
-        return self._get_rec_wrapper(recording).bgr_frames()
-
-    def z_frames(self, recording):
-        return self._get_rec_wrapper(recording).z_frames()
+    @property
+    def z_frames(self):
+        return seqtools.starmap(
+            lambda signer, sess, date, label, duration, skel_dat_off:
+                Recording(self._datadir, signer, label, sess, date).z_frames(),
+            self.rec_info)
 
     def split_500(self):
         del self
@@ -129,5 +129,3 @@ class DEVISIGNDataset:
             4387, 4388, 4389, 4390, 4391, 4392, 4393, 4394, 4395, 4396, 4397,
             4398, 4399, 4400, 4401, 4402, 4403, 4404, 4405, 4406, 4407, 4408,
             4409, 4410, 4411, 4412, 4413])
-        # subset = np.isin(self.rec_info["label"], label_subset)
-        # return np.where(subset)[0]

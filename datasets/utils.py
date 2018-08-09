@@ -1,5 +1,5 @@
 from typing import Sequence
-import av
+import cv2
 
 
 def split_seq(seq, glosses, offset=0, min_len=1, words=None):
@@ -62,163 +62,68 @@ def split_dataset_seqs(dataset, sequences, *kargs, **kwargs):
     return x, y
 
 
-# def gloss2seq(glosses, duration, default=-1, dtype=np.int32):
-#     seq = np.full((duration,), default, dtype=dtype)
-#     for l, start, stop in glosses:
-#         if start < 0 or stop > duration:
-#             raise ValueError
-#         seq[start:stop] = l
-#     return seq
-
-
-# def seq2gloss(seq):
-#     glosses = []
-#
-#     current = seq[0]
-#     start = 0
-#     for i, v in enumerate(seq):
-#         if v != current:
-#             glosses.append((current, start, i))
-#             current = v
-#             start = i
-#
-#     if start < len(seq):
-#         glosses.append((current, start, len(seq)))
-#
-#     return glosses
-
-
-# class VideoSequence(Sequence):
-#     def __init__(self, filename):
-#         self.filename = filename
-#         self.video = cv2.VideoCapture(filename)
-#         self.start = 0
-#         self.stop = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
-#
-#         if self.stop == 0:
-#             raise ValueError("{} is empty!".format(filename))
-#
-#     def __len__(self):
-#         return self.stop - self.start
-#
-#     def __iter__(self):
-#         for t in range(len(self)):
-#             yield self[t]
-#
-#     def __getstate__(self):
-#         return self.filename, self.start, self.stop
-#
-#     def __setstate__(self, state):
-#         filename, start, stop = state
-#         self.__init__(filename)
-#         self.start = start
-#         self.stop = stop
-#
-#     def __getitem__(self, item):
-#         if isinstance(item, slice):
-#             start, stop, step = item.start, item.stop, item.step
-#
-#             if step is not None and step != 1:
-#                 raise ValueError("Only step = 1 is supported")
-#
-#             if start is None:
-#                 start = self.start
-#             elif start < 0:
-#                 start += self.stop
-#             else:
-#                 start += self.start
-#             if stop is None:
-#                 stop = self.stop
-#             elif stop < 0:
-#                 stop += self.stop
-#             else:
-#                 stop += self.start
-#
-#             sliced = VideoSequence(self.filename)
-#             sliced.start = start
-#             sliced.stop = stop
-#             return sliced
-#
-#         else:
-#             if item < -len(self) or item >= len(self):
-#                 raise IndexError("Video frame {} is out of range.".format(item))
-#
-#             t = self.start + item if item >= 0 else self.stop + item
-#
-#             if self.video.get(cv2.CAP_PROP_POS_FRAMES) != t:
-#                 self.video.set(cv2.CAP_PROP_POS_FRAMES, t)
-#
-#             ok, frame = self.video.read()
-#             if not ok:
-#                 raise ValueError("Failed to read frame.")
-#
-#             return frame
-
-
 class VideoSequence(Sequence):
-    def __init__(self, file):
-        self.file = file
-        self.container = av.open(file)
-        self.stream = self.container.streams.get(video=0)[0]
-        self.frame_base = self.stream.time_base * self.stream.average_rate
-        self.packet_iter = self.container.demux(self.stream)
-        self.last_packet = next(self.packet_iter).decode()
+    def __init__(self, filename):
+        self.filename = filename
+        self.video = cv2.VideoCapture(filename)
+        self.start = 0
+        self.stop = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        self.offset = 0
-        self.duration = int(self.stream.duration * self.stream.time_base
-                            * self.stream.average_rate)
+        if self.stop == 0:
+            raise ValueError("{} is empty!".format(filename))
 
     def __len__(self):
-        return self.duration
+        return self.stop - self.start
 
-    def __getitem__(self, t):
-        # slicing support
-        if isinstance(t, slice):
-            start, stop, step = t.start, t.stop, t.step
+    def __iter__(self):
+        for t in range(len(self)):
+            yield self[t]
 
-            # defaults
-            start = start or 0
-            stop = stop or -1
-            step = step or 1
+    def __getstate__(self):
+        return self.filename, self.start, self.stop
 
-            # range check
-            if step != 1:
-                raise IndexError("VideoSequence slicing is limited to step 1")
-            if start < -len(self) or start >= len(self) \
-                    or stop < -len(self) - 1 or stop > len(self):
-                raise IndexError("VideoSequence slice index out of range.")
+    def __setstate__(self, state):
+        filename, start, stop = state
+        self.__init__(filename)
+        self.start = start
+        self.stop = stop
 
-            # negative indexing
-            start = start + len(self) if start < 0 else start
-            stop = stop + len(self) if stop < 0 else stop
-            stop = max(start, stop)
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            start, stop, step = item.start, item.stop, item.step
 
-            video = VideoSequence(self.file)
-            video.offset = self.offset + start  # cumulate offsets
-            video.duration = stop - start
+            if step is not None and step != 1:
+                raise ValueError("Only step = 1 is supported")
 
-            return video
+            if start is None:
+                start = self.start
+            elif start < 0:
+                start += self.stop
+            else:
+                start += self.start
+            if stop is None:
+                stop = self.stop
+            elif stop < 0:
+                stop += self.stop
+            else:
+                stop += self.start
 
-        # range check
-        if t < -len(self) or t >= len(self):
-            raise IndexError("VideoSequence index out of range.")
+            sliced = VideoSequence(self.filename)
+            sliced.start = start
+            sliced.stop = stop
+            return sliced
 
-        # negative indexing
-        if t < 0:
-            t += len(self)
+        else:
+            if item < -len(self) or item >= len(self):
+                raise IndexError("Video frame {} is out of range.".format(item))
 
-        t += self.offset
+            t = self.start + item if item >= 0 else self.stop + item
 
-        t_pts = t / self.stream.time_base / self.stream.average_rate
+            if self.video.get(cv2.CAP_PROP_POS_FRAMES) != t:
+                self.video.set(cv2.CAP_PROP_POS_FRAMES, t)
 
-        # Do seeking if needed
-        if t > self.last_packet[-1].pts * self.frame_base + len(self.last_packet) \
-                or t < self.last_packet[0].pts * self.frame_base:
-            self.stream.seek(int(t / self.frame_base))
-            self.packet_iter = self.container.demux(self.stream)
+            ok, frame = self.video.read()
+            if not ok:
+                raise ValueError("Failed to read frame.")
 
-        while True:
-            for f in self.last_packet:
-                if f.pts == t_pts:
-                    return f.to_rgb().to_nd_array()
-            self.last_packet = next(self.packet_iter).decode()
+            return frame

@@ -1,20 +1,27 @@
 import lasagne
 from sltools.models.rnn import build_predict_fn
-from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs, bgr_feat_seqs, \
-    transfer_feat_seqs
+from experiments.b_preprocess import skel_feat_seqs, bgr_feat_seqs, transfer_feat_seqs
 
 
 def reload_best_rnn(report):
     modality = report['meta']['modality']
+    model = report['meta']['model']
+
+    assert model.startswith("rnn")
 
     best_epoch = sorted([(r['val_scores']['jaccard'], e)
                          for e, r in report.items()
                          if e.startswith("epoch")
                          and "params" in r.keys()])[-1][1]
 
-    if modality == "skel":  # Skeleton end-to-end
+    if modality == "skel" and model == "rnn":  # Skeleton end-to-end
         from experiments.hmmvsrnn_reco.c_models import skel_lstm
         model_dict = skel_lstm(feats_shape=skel_feat_seqs[0][0].shape,
+                               **report['args'])
+
+    elif modality == "skel" and model == "rnn_mono":  # Skeleton end-to-end, not bidir.
+        from experiments.hmmvsrnn_reco.c_models import mono_lstm
+        model_dict = mono_lstm(feats_shape=skel_feat_seqs[0][0].shape,
                                **report['args'])
 
     elif modality == "bgr":  # BGR end-to-end

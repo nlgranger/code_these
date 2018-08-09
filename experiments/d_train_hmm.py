@@ -14,7 +14,7 @@ from copy import deepcopy
 from sltools.utils import gloss2seq
 from sltools.models import HMMRecognizer, PosteriorModel, hmm_perfs
 
-from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
+from experiments.hmmvsrnn_reco.a_data import cachedir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
 
 
@@ -46,7 +46,7 @@ encoder_kwargs = json.loads(args.encoder_kwargs)
 
 # Report setting ------------------------------------------------------------------------
 
-report = shelve.open(os.path.join(tmpdir, experiment_name), protocol=-1)
+report = shelve.open(os.path.join(cachedir, experiment_name), protocol=-1)
 
 report['meta'] = {
     'model': "hmm",
@@ -135,10 +135,10 @@ resume_at = sorted(e for e in report.keys() if e.startswith("epoch"))
 resume_at = "" if len(resume_at) == 0 else resume_at[-1]
 
 # Posterior training settings
-l_rate = .001
+l_rate = 1e-2
 updates = 'adam'
 loss = 'cross_entropy'
-weight_smoothing = .2 if modality == 'transfer' else .7  # TODO: or not?
+alpha = .2 if modality == 'transfer' else .7  # TODO: or not?
 min_progress = .01
 epoch_schedule = [20, 20] + [7] * 14
 refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)
@@ -170,10 +170,8 @@ for i in range(len(epoch_schedule)):
     # Fit posterior
     state_assignment = recognizer.align_states(feat_seqs_train, gloss_seqs_train,
                                                linear=(i == 0))
-
     counts = np.unique(np.concatenate(state_assignment), return_counts=True)[1]
-    weights = np.power((counts + 100) / counts.max(), - weight_smoothing)
-    weights = weights / np.sum(weights) * recognizer.nstates
+    weights = 1 / (21 * (np.fmax(100, counts) / np.sum(counts)) ** alpha)
 
     batch_losses = []
     epoch_losses = []
@@ -225,7 +223,7 @@ for i in range(len(epoch_schedule)):
             'l_rate': .001,
             'updates': updates,
             'loss': loss,
-            'weight_smoothing': weight_smoothing,
+            'weight_smoothing': alpha,
             'min_progress': min_progress,
             'epoch_schedule': epoch_schedule,
             'refit_schedule': refit_schedule,

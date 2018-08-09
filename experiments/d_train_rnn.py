@@ -18,7 +18,7 @@ from sltools.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
 from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length
 
-from experiments.hmmvsrnn_reco.a_data import tmpdir, gloss_seqs, durations, \
+from experiments.a_data import cachedir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
 
 
@@ -35,6 +35,7 @@ argparser.add_argument("--date",
 argparser.add_argument("--notes", default="")
 argparser.add_argument("--batch_size", type=int)
 argparser.add_argument("--max_time", type=int)
+argparser.add_argument("--mono", action='store_const', const=True, default=False)
 argparser.add_argument("--encoder_kwargs")
 args = argparser.parse_args()
 
@@ -50,10 +51,10 @@ encoder_kwargs = json.loads(args.encoder_kwargs)
 
 # Report setting ------------------------------------------------------------------------
 
-report = shelve.open(os.path.join(tmpdir, experiment_name), protocol=-1)
+report = shelve.open(os.path.join(cachedir, experiment_name), protocol=-1)
 
 report['meta'] = {
-    'model': "rnn",
+    'model': "rnn" + ("_mono" if args.mono else ""),
     'modality': modality,
     'variant': variant,
     'date': date,
@@ -81,17 +82,17 @@ if "script" in report.keys():
 # Data ----------------------------------------------------------------------------------
 
 if modality == "skel":
-    from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
+    from experiments.b_preprocess import skel_feat_seqs
     feat_seqs = [skel_feat_seqs]
 elif modality == "bgr":
-    from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+    from experiments.b_preprocess import bgr_feat_seqs
     feat_seqs = [bgr_feat_seqs]
 elif modality == "fusion":
-    from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
-    from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+    from experiments.b_preprocess import skel_feat_seqs
+    from experiments.b_preprocess import bgr_feat_seqs
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feat_seqs
+    from experiments.b_preprocess import transfer_feat_seqs
     feat_seqs = transfer_feat_seqs(encoder_kwargs['transfer_from'],
                                    encoder_kwargs['freeze_at'])
 else:
@@ -113,14 +114,16 @@ del feat_seqs, durations, gloss_seqs  # fool proofing
 
 # Model ---------------------------------------------------------------------------------
 
-if modality == "skel":  # Skeleton end-to-end
-    from experiments.hmmvsrnn_reco.c_models import skel_lstm as build_model_fn
+if modality == "skel" and not args.mono:  # Skeleton end-to-end
+    from experiments.c_models import skel_lstm as build_model_fn
+elif modality == "skel" and args.mono:  # Skeleton end-to-end
+    from experiments.c_models import mono_lstm as build_model_fn
 elif modality == "bgr":  # BGR end-to-end
-    from experiments.hmmvsrnn_reco.c_models import bgr_lstm as build_model_fn
+    from experiments.c_models import bgr_lstm as build_model_fn
 elif modality == "fusion":  # Fusion end-to-end
-    from experiments.hmmvsrnn_reco.c_models import fusion_lstm as build_model_fn
+    from experiments.c_models import fusion_lstm as build_model_fn
 elif modality == "transfer":  # Skeleton transfer
-    from experiments.hmmvsrnn_reco.c_models import transfer_lstm as build_model_fn
+    from experiments.c_models import transfer_lstm as build_model_fn
 else:
     raise ValueError
 
@@ -134,11 +137,9 @@ predict_fn = build_predict_fn(model_dict, batch_size, max_time)
 
 # Training ------------------------------------------------------------------------------
 
-if modality == 'transfer':
-    weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.2
-else:
-    weights = np.unique(np.concatenate(targets_train), return_counts=True)[1] ** -0.7
-weights *= 21 / weights.sum()
+alpha = 0.2 if modality == 'transfer' else 0.7
+counts = np.unique(np.concatenate(targets_train), return_counts=True)[1]
+weights = 1 / (21 * (counts / np.sum(counts)) ** alpha)
 loss_fn = partial(seq_ce_loss, weights=weights)
 updates_fn = lasagne.updates.adam
 
@@ -206,15 +207,13 @@ def train_one_epoch(report_key):
     n_features = len(null_sample)
 
     def collate(b_):
-        return [np.array([b_[i][c] for i in range(batch_size)])
+        return [np.stack([b_[i][c] for i in range(batch_size)])
                 for c in range(n_features)]
 
-    # todo: shuffle
     minibatches = seqtools.batch(
         chunked_sequences, batch_size, drop_last=True,
         collate_fn=collate)
-    minibatches = seqtools.prefetch(
-        minibatches, max_cached=10, nworkers=2)
+    minibatches = seqtools.prefetch(minibatches, max_cached=10, nworkers=2)
 
     # train
     t = time.time()
@@ -267,7 +266,7 @@ def update_setup(epoch_prefix):
         / np.var(np.arange(len(multibatch_losses))) \
         * len(multibatch_losses) / len(last_reports)
 
-    print('   progress ~ {:.4e}'.format(avg_progress))
+    print('    progress ~ {:.4e}'.format(avg_progress))
     if avg_progress > - min_progress:
         print("decreasing learning rate: {} -> {}".format(l_rate, l_rate * .3))
         l_rate *= .3

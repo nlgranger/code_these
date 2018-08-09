@@ -4,7 +4,7 @@ import json
 import shutil
 import pprint
 
-from experiments.hmmvsrnn_reco.a_data import tmpdir
+from experiments.hmmvsrnn_reco.a_data import cachedir
 
 jobfile = sys.argv[-1]
 while True:
@@ -14,10 +14,10 @@ while True:
         joblist = json.load(f)
 
     for job in joblist:
-        if not os.path.exists(os.path.join(tmpdir, job['name'] + ".dat")):
+        if not os.path.exists(os.path.join(cachedir, job['name'] + ".dat")):
             todo = job
             break
-        if not os.path.exists(os.path.join(tmpdir, job['name'] + ".ipynb")):
+        if not os.path.exists(os.path.join(cachedir, job['name'] + ".ipynb")):
             todo = job
             break
 
@@ -54,4 +54,4 @@ while True:
         sys.exit(-1)
 
     shutil.move(os.path.join("experiments/hmmvsrnn_reco/", todo['name'] + ".ipynb"),
-                os.path.join(tmpdir, todo['name'] + ".ipynb"))
+                os.path.join(cachedir, todo['name'] + ".ipynb"))

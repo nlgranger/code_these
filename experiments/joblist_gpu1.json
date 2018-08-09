@@ -179,7 +179,7 @@
     "tconv_sz": 21,
     "filter_dilation": 1,
     "num_tc_filters": 256,
-    "dropout": 0.3
+    "dropout": 0.2
   }
 },{
   "name": "rnn_skel_tc21",
@@ -193,7 +193,7 @@
     "tconv_sz": 21,
     "filter_dilation": 1,
     "num_tc_filters": 256,
-    "dropout": 0.3
+    "dropout": 0.2
   }
 },{
   "name": "hmm_skel_tc29",
@@ -235,7 +235,7 @@
     "tconv_sz": 29,
     "filter_dilation": 1,
     "num_tc_filters": 128,
-    "dropout": 0.3
+    "dropout": 0.2
   }
 },{
   "name": "rnn_skel_tc29half",

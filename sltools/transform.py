@@ -4,12 +4,23 @@ from scipy.interpolate import interp1d
 import seqtools
 
 
+TransformationType = np.dtype([
+    ('ref2d', (np.float32, 2)),
+    ('ref3d', (np.float32, 3)),
+    ('fliplr', np.bool),
+    ('tilt', np.float32),
+    ('zshift', np.float32),
+    ('xscale', np.float32),
+    ('yscale', np.float32),
+    ('zscale', np.float32),
+    ('tscale', np.float32)])
+
+
 class Transformation:
-    def __init__(self, ref2d=None, ref3d=None, flip_mapping=None, frame_width=None,
+    def __init__(self, ref2d=None, ref3d=None, frame_width=None,
                  fliplr=False, tilt=0, zshift=0, xscale=1, yscale=1, zscale=1, tscale=1):
         self.ref2d = ref2d
         self.ref3d = ref3d
-        self.flip_mapping = flip_mapping
         self.frame_width = frame_width
         self.zshift = zshift
         self.fliplr = fliplr
@@ -20,18 +31,22 @@ class Transformation:
         self.tscale = tscale
 
 
-def transform_pose2d(pose2d_seq, t: Transformation):
+def transform_pose2d(pose2d_seq, t: Transformation, flip_mapping, frame_width):
     output = np.copy(pose2d_seq).astype(np.float)
 
     # shorthand notations
     sx, sy = t.xscale, t.yscale
-    rx, ry = t.ref2d[:, None, 0], t.ref2d[:, None, 1]
+    if len(t.ref2d.shape) == 2:
+        rx, ry, rz = t.ref2d[:, None, 0], t.ref2d[:, None, 1], t.ref3d[:, None, 2]
+    else:
+        rx, ry, rz = \
+            t.ref2d[None, None, 0], t.ref2d[None, None, 1], t.ref3d[None, None, 2]
     duration = len(output)
     x = output[:, :, 0]
     y = output[:, :, 1]
 
     # z-shift
-    z_corrections = 1 + t.zshift / (t.ref3d[:, None, 2] + .0001)
+    z_corrections = 1 + t.zshift / (rz + .0001)
     x[...] = (x - rx) / z_corrections + rx
     y[...] = (y - ry) / z_corrections + ry
 
@@ -45,9 +60,9 @@ def transform_pose2d(pose2d_seq, t: Transformation):
 
     # fliplr
     if t.fliplr:
-        src, dst = t.flip_mapping
+        src, dst = flip_mapping
         output[:, dst, :] = output[:, src, :]
-        x[...] = t.frame_width - x - 1
+        x[...] = frame_width - x - 1
 
     # time scale
     interpolator = interp1d(np.arange(duration), output,
@@ -59,12 +74,16 @@ def transform_pose2d(pose2d_seq, t: Transformation):
     return output.astype(pose2d_seq[0].dtype)
 
 
-def transform_pose3d(pose3d_seq, t: Transformation):
+def transform_pose3d(pose3d_seq, t: Transformation, flip_mapping):
     output = np.copy(pose3d_seq).astype(np.float)
 
     # shorthand notations
     sx, sy, sz = t.xscale, t.yscale, t.zscale
-    rx, ry, rz = t.ref3d[:, None, 0], t.ref3d[:, None, 1], t.ref3d[:, None, 2]
+    if len(t.ref2d.shape) == 2:
+        rx, ry, rz = t.ref2d[:, None, 0], t.ref2d[:, None, 1], t.ref3d[:, None, 2]
+    else:
+        rx, ry, rz = \
+            t.ref2d[None, None, 0], t.ref2d[None, None, 1], t.ref3d[None, None, 2]
     x = output[:, :, 0]
     y = output[:, :, 1]
     z = output[:, :, 2]
@@ -84,7 +103,7 @@ def transform_pose3d(pose3d_seq, t: Transformation):
 
     # fliplr
     if t.fliplr:
-        src, dst = t.flip_mapping
+        src, dst = flip_mapping
         output[:, dst, :] = output[:, src, :]
         x[...] = 2 * rx - x
 
@@ -101,39 +120,31 @@ def transform_pose3d(pose3d_seq, t: Transformation):
 def transform_frames(frame_seq, t: Transformation):
     # shorthand notations
     duration = len(frame_seq)
-    h, w = frame_seq[0].shape[:2]
     sx, sy = t.xscale, t.yscale
-    rx, ry = t.ref2d[:, None, 0], t.ref2d[:, None, 1]
+    rx, ry = t.ref2d
+    rz = t.ref3d[2]
 
-    triangles_src = np.stack([
-        rx,
-        ry,
-        rx + 1,
-        ry,
-        rx,
-        ry + 1], axis=1).astype(np.float32).reshape((-1, 3, 2))
+    # generate affine transformation matrix
+    # triangles_src = np.array([[rx, rx + 1, rx], [ry, ry, ry + 1]], dtype=np.float32)
+    triangles_src = np.array([[rx, ry], [rx + 10, ry], [rx, ry + 10]], dtype=np.float32)
     triangles_dst = np.copy(triangles_src)
-    x = triangles_dst[:, :, 0]
-    y = triangles_dst[:, :, 1]
+    x = triangles_dst[:, 0]
+    y = triangles_dst[:, 1]
 
-    # z-shift
-    z_corrections = 1 + t.zshift / (t.ref3d[:, None, 2] + .0001)
+    z_corrections = 1 + t.zshift / (rz + .0001)
     x[...] = (x - rx) / z_corrections + rx
     y[...] = (y - ry) / z_corrections + ry
 
-    # space scale
     x[...] = (x - rx) * sx + rx
     y[...] = (y - ry) * sy + ry
 
-    # tilt
     x[...] = rx + np.cos(t.tilt) * (x - rx) - np.sin(t.tilt) * (y - ry)
     y[...] = ry + np.sin(t.tilt) * (x - rx) + np.cos(t.tilt) * (y - ry)
 
-    def warp(f, src, dst):
-        tmatrix = cv2.getAffineTransform(src, dst)
-        return cv2.warpAffine(f, tmatrix, (w, h))
+    tmatrix = cv2.getAffineTransform(triangles_src, triangles_dst)
 
-    output = seqtools.smap(warp, frame_seq, triangles_src, triangles_dst)
+    # affine frame-wise transformations
+    output = seqtools.smap(lambda f: cv2.warpAffine(f, tmatrix, (640, 480)), frame_seq)
 
     # fliplr
     if t.fliplr:

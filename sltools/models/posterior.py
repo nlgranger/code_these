@@ -1,4 +1,3 @@
-import logging
 from random import shuffle
 
 import numpy as np

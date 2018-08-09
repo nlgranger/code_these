@@ -1,4 +1,3 @@
-import json
 cimport numpy
 from pomegranate.base cimport Model
 

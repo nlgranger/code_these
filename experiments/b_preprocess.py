@@ -2,10 +2,10 @@
 
 import os
 import shelve
-from datetime import timedelta
 from time import time
 from itertools import combinations
 
+import cv2
 import numpy as np
 import seqtools
 from numpy.lib.format import open_memmap
@@ -13,14 +13,18 @@ from scipy.ndimage.filters import gaussian_filter1d
 from sltools.utils import split_seq, simple_mode_search, crop
 from sltools.preprocess import fix_contrast
 
-from experiments.hmmvsrnn_reco.a_data import tmpdir, train_subset, \
+from experiments.a_data import cachedir, train_subset, \
     durations, pose2d_seqs, pose3d_seqs, frame_seqs, gloss_seqs, joints
+
+
+cv2.setNumThreads(4)
 
 
 # Exported values -----------------------------------------------------------------------
 
 skel_feat_seqs = None
 bgr_feat_seqs = None
+snapshot = None
 
 
 # Settings ------------------------------------------------------------------------------
@@ -146,9 +150,9 @@ def transfer_feat_seqs(transfer_from, freeze_at):
     import theano.tensor as T
     import lasagne
     from sltools.nn_utils import adjust_length
-    from experiments.hmmvsrnn_reco.utils import reload_best_hmm, reload_best_rnn
+    from experiments.utils import reload_best_hmm, reload_best_rnn
 
-    report = shelve.open(os.path.join(tmpdir, transfer_from))
+    report = shelve.open(os.path.join(cachedir, transfer_from))
 
     if report['meta']['modality'] == "skel":
         source_feat_seqs = [skel_feat_seqs]
@@ -164,7 +168,7 @@ def transfer_feat_seqs(transfer_from, freeze_at):
         return source_feat_seqs
 
     # reuse cached features
-    dump_file = os.path.join(tmpdir, report['meta']['experiment_name']
+    dump_file = os.path.join(cachedir, report['meta']['experiment_name']
                              + "_" + freeze_at + "feats.npy")
     if os.path.exists(dump_file):
         boundaries = np.stack((np.cumsum(durations) - durations,
@@ -254,19 +258,21 @@ def prepare():
     total_duration = sum(durations)
     subsequences = np.stack([np.cumsum(durations) - durations,
                              np.cumsum(durations)], axis=1)
-    skel_dump_file = os.path.join(tmpdir, 'skel_seqs.npy')
+    skel_dump_file = os.path.join(cachedir, 'skel_seqs.npy')
     storage = open_memmap(skel_dump_file, 'w+', dtype=np.float32,
                           shape=(total_duration,) + feat_size)
     seqs_storage = split_seq(storage, subsequences)
 
-    print("computing feats .... eta ..:..", end="", flush=True)
-    t1 = time()
+    print("computing feats .... eta ..:..:..", end="", flush=True)
+    tstart = time()
     for i, f in enumerate(feat_seqs):
         seqs_storage[i][...] = f
-        eta = (time() - t1) / subsequences[i, 1] * (total_duration - subsequences[i, 1])
-        print("\rcomputing feats {:3.0f}% eta {:02.0f}:{:02.0f}".format(
-            subsequences[i, 1] / total_duration * 100, eta / 60, eta % 60),
-            end="", flush=True)
+        progress = subsequences[i, 1] / total_duration
+        elapsed = time() - tstart
+        eta = int(elapsed / progress - elapsed)
+        print("\rcomputing feats {:3.0f}% eta {:02d}:{:02d}:{:02d}".format(
+                progress * 100, eta // 3600, (eta % 3600) // 60, eta % 60),
+              end="", flush=True)
 
     print("")
 
@@ -284,26 +290,29 @@ def prepare():
 
     # Processing pipeline for BGR frames
     feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)
+    # feat_seqs = seqtools.prefetch(feat_seqs, max_cached=20, nworkers=4, method="process")
 
     # Export to file
     feat_size = feat_seqs[0][0].shape
-    print("feat size: {}".format(feat_size))
+    print("video feat size: {}".format(feat_size))
     total_duration = sum(durations)
     subsequences = np.stack([np.cumsum(durations) - durations,
                              np.cumsum(durations)], axis=1)
-    bgr_dump_file = os.path.join(tmpdir, 'bgr_seqs.npy')
-    storage = open_memmap(bgr_dump_file, 'w+', dtype=np.float32,
+    bgr_dump_file = os.path.join(cachedir, 'bgr_seqs.npy')
+    storage = open_memmap(bgr_dump_file, mode='w+', dtype=np.float32,
                           shape=(total_duration,) + feat_size)
     seqs_storage = split_seq(storage, subsequences)
 
     print("computing feats .... eta ..:..:..", end="", flush=True)
-    t1 = time()
+    tstart = time()
     for i, f in enumerate(feat_seqs):
         seqs_storage[i][...] = f
-        eta = (time() - t1) / subsequences[i, 1] * (total_duration - subsequences[i, 1])
-        print("\rcomputing feats {:3.0f}% eta {}".format(
-            subsequences[i, 1] / total_duration * 100, timedelta(seconds=eta)),
-            end="", flush=True)
+        progress = subsequences[i, 1] / total_duration
+        elapsed = time() - tstart
+        eta = int(elapsed / progress - elapsed)
+        print("\rcomputing feats {:3.0f}% eta {:02d}:{:02d}:{:02d}".format(
+                progress * 100, eta // 3600, (eta % 3600) // 60, eta % 60),
+              end="", flush=True)
 
     print("")
 
@@ -311,8 +320,8 @@ def prepare():
 def reload():
     global skel_feat_seqs, bgr_feat_seqs
 
-    skel_dump_file = os.path.join(tmpdir, 'skel_seqs.npy')
-    bgr_dump_file = os.path.join(tmpdir, 'bgr_seqs.npy')
+    skel_dump_file = os.path.join(cachedir, 'skel_seqs.npy')
+    bgr_dump_file = os.path.join(cachedir, 'bgr_seqs.npy')
     skel_storage = np.load(skel_dump_file, mmap_mode='r')
     bgr_storage = np.load(bgr_dump_file, mmap_mode='r')
     subsequences = np.stack([np.cumsum(durations) - durations,

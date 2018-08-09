@@ -39,6 +39,25 @@ def categorical_crossentropy_logdomain(log_predictions, targets):
                      data_shape)
 
 
+def multiclass_hinge_loss(predictions, targets, delta):
+    if targets.ndim == predictions.ndim:
+        targets = T.argmax(targets, axis=-1)
+    elif targets.ndim + 1 != predictions.ndim:
+        raise ValueError("predictions and target dimensions mismatch")
+
+    *original_shape, num_cls = predictions.shape
+    predictions = T.reshape(predictions, (-1, num_cls))
+    targets = T.flatten(targets)
+    num_preds = targets.shape[0]
+
+    pred_target = predictions[T.arange(num_preds), targets]
+    predictions = T.set_subtensor(predictions[T.arange(num_preds), targets],
+                                  T.min(predictions) - 1.)
+    pred_closest = T.max(predictions, axis=1)
+
+    return T.reshape(T.nnet.relu(pred_closest - pred_target + delta), original_shape)
+
+
 def onehot(y, labels):
     idx = np.empty((labels.max() + 1,), dtype=np.int32)
     for i, l in enumerate(labels):

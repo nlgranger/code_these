@@ -236,7 +236,7 @@
     "tconv_sz": 25,
     "filter_dilation": 1,
     "num_tc_filters": 256,
-    "dropout": 0.3
+    "dropout": 0.2
   }
 },{
   "name": "rnn_skel_tc25",
@@ -250,7 +250,7 @@
     "tconv_sz": 25,
     "filter_dilation": 1,
     "num_tc_filters": 256,
-    "dropout": 0.3
+    "dropout": 0.2
   }
 },{
   "name": "hmm_bgr_tc15",

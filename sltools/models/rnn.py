@@ -63,7 +63,7 @@ def build_predict_fn(model_dict, batch_size, max_time, nworkers=2):
         minibatches = seqtools.batch(
             chunked_sequences, batch_size, pad=null_sample, collate_fn=collate)
         minibatches = seqtools.prefetch(
-            minibatches, nworkers=nworkers, max_buffered=nworkers * 5)
+            minibatches, max_cached=nworkers * 5, nworkers=nworkers)
 
         # process
         batched_predictions = seqtools.starmap(predict_batch_fn, minibatches)

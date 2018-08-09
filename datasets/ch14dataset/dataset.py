@@ -81,15 +81,13 @@ class Chalearn2014Dataset:
 
     def bgr_frames(self, recording):
         num = self.rec_info['num'][recording]
-        filename = os.path.join(self.datadir,
-                                "Sample{:04d}_color.mp4".format(num))
+        filename = os.path.join(self.datadir, "Sample{:04d}_color.mp4".format(num))
 
         return VideoSequence(filename)
 
     def z_maps(self, recording):
         num = self.rec_info['num'][recording]
-        filename = os.path.join(self.datadir,
-                                "Sample{:04d}_depth.mp4".format(num))
+        filename = os.path.join(self.datadir, "Sample{:04d}_depth.mp4".format(num))
 
         max_depth = self.rec_info['max_depth'][recording]
 

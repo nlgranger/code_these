@@ -1,9 +1,20 @@
+import sys
+import multiprocessing
+import queue
+from multiprocessing.sharedctypes import RawArray
+from weakref import finalize
+import traceback
 import logging
 import numpy as np
 from theano import tensor as T
 import lasagne
 from lasagne.layers import Layer
 from sklearn.metrics import confusion_matrix
+import tblib
+from seqtools.evaluation import AsyncSequence, JobStatus
+from seqtools.utils import SharedCtypeQueue
+from memory_profiler import profile
+import signal
 
 
 # Generic mathematical functions --------------------------------------------------------
@@ -186,3 +197,168 @@ def adjust_length(seq, size, axis=0, pad=0):
     seq = np.concatenate((seq, pad_value), axis=axis)
 
     return seq
+
+
+# Fast Minibatch loader -----------------------------------------------------------------
+
+class MultiprocessSequence(AsyncSequence):
+    # AsyncSequence provides essential boilerplate code, particularly
+    # locking and race condition management.
+    # We then adapt the code from seqtools.evaluation.MultiprocessSequence
+    # to specialize on numpy objects.
+    def __init__(self, sequence, max_cached,
+                 nworkers=0, timeout=1, start_hook=None, anticipate=None):
+        """Wraps a sequence to use workers that prefetch values ahead.
+
+        Args:
+            sequence:
+                A sequence containing tuples of numpy arrays, for
+                example (value, label) pairs. The arrays must have
+                the same type and shape across items.
+            max_cached:
+                Maximum number of locally cached precomputed values.
+            nworkers:
+                Number of prefetching workers
+            timeout:
+                Maximum idle time for active workers.
+            start_hook:
+                User specified callable run by each worker after start
+                (for example random.seed).
+            anticipate:
+                Callable function taking an item index and returning the
+                index that is the most likely to be accessed after that.
+                Defaults to monotonic access.
+
+        .. warning::
+
+            The returned values are _views on buffers_, anytime a new item is requested,
+            the values of previously returned items should be considered compromised.
+        """
+        if nworkers <= 0:
+            nworkers = max(1, multiprocessing.cpu_count() - nworkers)
+        if len(sequence) == 0:
+            raise ValueError("empty sequences not supported")
+
+        q_in = SharedCtypeQueue("Ll", maxsize=max_cached)
+        q_out = SharedCtypeQueue("LLb", maxsize=max_cached)
+
+        super(MultiprocessSequence, self).__init__(
+            max_cached, q_in, q_out, timeout, anticipate)
+
+        self.sequence = sequence
+        self.nworkers = nworkers
+        self.start_hook = start_hook
+
+        # setup cache in shared memory
+        sample = self.sequence[0]
+        self.buffers = []
+        for field in sample:
+            self.buffers.append((
+                RawArray(memoryview(field).format, max_cached * field.size),
+                field.dtype, field.shape))
+        self.values_cache = []
+        for i in range(max_cached):
+            slot = []
+            for b, t, s in self.buffers:
+                field_buffer = np.reshape(np.reshape(
+                    np.frombuffer(b, t), (-1,) + s)[i:i + 1], s)
+                field_buffer.flags.writeable = False
+                slot.append(field_buffer)
+            self.values_cache.append(tuple(slot))
+        manager = multiprocessing.Manager()
+        self.errors_cache = manager.list([None, ""] * max_cached)
+
+        # setup workers
+        self.workers = []
+        finalize(self, MultiprocessSequence._finalize, self)  # ensure proper termination
+        self.start_workers()
+
+    def __len__(self):
+        return len(self.sequence)
+
+    def start_workers(self):
+        for i, w in enumerate(self.workers):
+            if not w.is_alive():
+                w.join()
+                self.workers[i] = multiprocessing.Process(
+                    target=self.__class__.target,
+                    args=(self.sequence, self.buffers, self.errors_cache,
+                          self.q_in, self.q_out,
+                          self.timeout, self.start_hook))
+                self.workers[i].start()
+        for _ in range(len(self.workers), self.nworkers):
+            self.workers.append(multiprocessing.Process(
+                target=self.__class__.target,
+                args=(self.sequence, self.buffers, self.errors_cache,
+                      self.q_in, self.q_out,
+                      self.timeout, self.start_hook)))
+            self.workers[-1].start()
+
+    def read_cache(self, slot):
+        return self.values_cache[slot]
+
+    def reraise_failed_job(self, slot):
+        error, trace = self.errors_cache[slot]
+        self.errors_cache[slot] = (None, "")
+        if error is not None:
+            raise error.with_traceback(trace.as_traceback())
+        else:
+            raise RuntimeError(trace)
+
+    @staticmethod
+    @profile
+    def target(sequence, buffers, errors_cache, q_in, q_out,
+               timeout, start_hook):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # let parent handle signals
+
+        if start_hook is not None:
+            start_hook()
+
+        buffers = tuple(np.reshape(np.frombuffer(b, t), (-1,) + s)
+                        for b, t, s in buffers)
+
+        try:
+            while True:
+                try:
+                    item, slot = q_in.get(timeout=timeout)
+                except queue.Empty:
+                    return
+                if slot < 0:
+                    return
+
+                try:
+                    for field, buffer in zip(sequence[item], buffers):
+                        buffer[slot] = field
+                except Exception as error:
+                    _, _, trace = sys.exc_info()
+                    trace = tblib.Traceback(trace)
+                    tb_str = traceback.format_exc(20)
+                    # noinspection PyBroadException
+                    try:  # this one may fail if ev is not picklable
+                        errors_cache[slot] = error, trace
+                    except Exception:
+                        errors_cache[slot] = None, tb_str
+
+                    q_out.put_nowait((item, slot, JobStatus.FAILED))
+
+                else:
+                    q_out.put_nowait((item, slot, JobStatus.DONE))
+
+        except IOError:
+            return  # parent probably died
+
+    @staticmethod
+    def _finalize(obj):
+        # drain input queue
+        while not obj.q_in.empty():
+            try:
+                obj.q_in.get_nowait()
+            except queue.Empty:
+                pass
+
+        # send termination signals
+        for _ in obj.workers:
+            obj.q_in.put((0, -1))
+
+        for worker in obj.workers:
+            worker.join()

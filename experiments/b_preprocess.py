@@ -224,7 +224,7 @@ def transfer_feat_seqs(transfer_from, freeze_at):
 
     minibatches = seqtools.batch(
         chunked_sequences, batch_size, pad=null_sample, collate_fn=collate)
-    minibatches = seqtools.prefetch(minibatches, nworkers=2, max_buffered=10)
+    # minibatches = seqtools.prefetch(minibatches, nworkers=2, max_buffered=10)
 
     # process
     batched_predictions = seqtools.starmap(predict_batch_fn, minibatches)

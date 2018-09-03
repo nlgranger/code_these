@@ -14,7 +14,7 @@ from copy import deepcopy
 from sltools.utils import gloss2seq
 from sltools.models import HMMRecognizer, PosteriorModel, hmm_perfs
 
-from experiments.hmmvsrnn_reco.a_data import cachedir, gloss_seqs, durations, \
+from experiments.a_data import cachedir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
 
 
@@ -77,17 +77,17 @@ if "script" in report.keys():
 # Data ----------------------------------------------------------------------------------
 
 if modality == "skel":
-    from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
+    from experiments.b_preprocess import skel_feat_seqs
     feat_seqs = [skel_feat_seqs]
 elif modality == "bgr":
-    from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+    from experiments.b_preprocess import bgr_feat_seqs
     feat_seqs = [bgr_feat_seqs]
 elif modality == "fusion":
-    from experiments.hmmvsrnn_reco.b_preprocess import skel_feat_seqs
-    from experiments.hmmvsrnn_reco.b_preprocess import bgr_feat_seqs
+    from experiments.b_preprocess import skel_feat_seqs
+    from experiments.b_preprocess import bgr_feat_seqs
     feat_seqs = [skel_feat_seqs, bgr_feat_seqs]
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.b_preprocess import transfer_feat_seqs
+    from experiments.b_preprocess import transfer_feat_seqs
     feat_seqs = transfer_feat_seqs(encoder_kwargs['transfer_from'],
                                    encoder_kwargs['freeze_at'])
 else:
@@ -109,13 +109,13 @@ targets_val = rmap(lambda g, d: gloss2seq(g, d, 0),
 chains_lengths = [5] * 20
 
 if modality == "skel":
-    from experiments.hmmvsrnn_reco.c_models import skel_encoder as encoder
+    from experiments.c_models import skel_encoder as encoder
 elif modality == "bgr":
-    from experiments.hmmvsrnn_reco.c_models import bgr_encoder as encoder
+    from experiments.c_models import bgr_encoder as encoder
 elif modality == "fusion":
-    from experiments.hmmvsrnn_reco.c_models import fusion_encoder as encoder
+    from experiments.c_models import fusion_encoder as encoder
 elif modality == "transfer":
-    from experiments.hmmvsrnn_reco.c_models import transfer_encoder as encoder
+    from experiments.c_models import transfer_encoder as encoder
 else:
     raise ValueError
 
@@ -135,10 +135,10 @@ resume_at = sorted(e for e in report.keys() if e.startswith("epoch"))
 resume_at = "" if len(resume_at) == 0 else resume_at[-1]
 
 # Posterior training settings
-l_rate = 1e-2
+l_rate = 1e-3
 updates = 'adam'
 loss = 'cross_entropy'
-alpha = .2 if modality == 'transfer' else .7  # TODO: or not?
+alpha = .2 if modality == 'transfer' else .6
 min_progress = .01
 epoch_schedule = [20, 20] + [7] * 14
 refit_schedule = [False, False] + [True] * (len(epoch_schedule) - 2)

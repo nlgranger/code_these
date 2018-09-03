@@ -16,7 +16,7 @@ from sltools.modrop import modrop
 
 # Model parts ---------------------------------------------------------------------------
 
-def wide_resnet(l_in, d, k, dropout=0.):
+def wide_resnet(l_in, d, k):
     """Build a Wide-Resnet WRN-d-k
 
     Parameters
@@ -28,8 +28,6 @@ def wide_resnet(l_in, d, k, dropout=0.):
         by groups)
     :param k:
         widening factor
-    :param dropout:
-        dropout rate
     """
     if (d - 4) % 6 != 0:
         raise ValueError("d should be of the form d = 6 * n + 4")
@@ -45,8 +43,6 @@ def wide_resnet(l_in, d, k, dropout=0.):
 
         rectified_input = conv_path  # reused in linear shortcut
 
-        # TODO: not clear if we should dropout here, authors code doesn't seem to
-
         conv_path = Conv2DLayer(
             conv_path, num_filters=num_filters, filter_size=(3, 3),
             stride=stride, pad='same',
@@ -54,8 +50,6 @@ def wide_resnet(l_in, d, k, dropout=0.):
 
         conv_path = BatchNormLayer(conv_path)
         conv_path = NonlinearityLayer(conv_path, nonlinearity=rectify)
-        if dropout > 0:
-            conv_path = DropoutLayer(conv_path, p=dropout)
 
         conv_path = Conv2DLayer(
             conv_path, num_filters=num_filters, filter_size=(3, 3),
@@ -116,7 +110,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     l1 = lasagne.layers.DenseLayer(
         l_in, num_units=480,
         num_leading_axes=2,
-        nonlinearity=None)
+        nonlinearity=None, b=None)
     l1 = BatchNormLayer(l1, axes=(0, 1))
     l1 = NonlinearityLayer(l1, leaky_rectify)
 
@@ -125,7 +119,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     l2 = lasagne.layers.DenseLayer(
         d1, num_units=480,
         num_leading_axes=2,
-        nonlinearity=None)
+        nonlinearity=None, b=None)
     l2 = BatchNormLayer(l2, axes=(0, 1))
     l2 = NonlinearityLayer(l2, leaky_rectify)
 
@@ -134,7 +128,7 @@ def skel_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     l3 = TemporalConv(d2, num_filters=num_tc_filters, filter_size=tconv_sz,
                       filter_dilation=filter_dilation, pad='same',
                       conv_type='regular',
-                      nonlinearity=None)
+                      nonlinearity=None, b=None)
     l3 = BatchNormLayer(l3, axes=(0, 1))
     l3 = NonlinearityLayer(l3, leaky_rectify)
 
@@ -154,18 +148,18 @@ def bgr_encoder(l_in, tconv_sz, filter_dilation, num_tc_filters, dropout):
     l_r1 = ReshapeLayer(l_in, (-1, 1) + crop_size)
 
     # process through (siamese) CNN
-    l_cnnout = wide_resnet(l_r1, d=16, k=1, dropout=0)  # TODO is dropout=0 ok?
+    l_cnnout = wide_resnet(l_r1, d=16, k=1)
 
     # Concatenate feature vectors from the pairs
     feat_shape = np.asscalar(np.prod(l_cnnout.output_shape[1:]))
     l_feats = ReshapeLayer(l_cnnout, (batch_size, max_time, 2 * feat_shape))
 
-    l_drop1 = DropoutLayer(l_feats, p=dropout)
+    if dropout > 0:
+        l_feats = DropoutLayer(l_feats, p=dropout)
 
-    l_out = TemporalConv(l_drop1, num_filters=num_tc_filters, filter_size=tconv_sz,
+    l_out = TemporalConv(l_feats, num_filters=num_tc_filters, filter_size=tconv_sz,
                          filter_dilation=filter_dilation, pad='same',
-                         conv_type='regular',
-                         nonlinearity=None)
+                         b=None, nonlinearity=None)
     l_out = BatchNormLayer(l_out, axes=(0, 1))
     l_out = NonlinearityLayer(l_out, leaky_rectify)
 
@@ -196,7 +190,7 @@ def fusion_encoder(l_in_skel, l_in_zmaps, skel_kwargs, bgr_kwargs):
 @SerializableFunc
 def transfer_encoder(*l_in, transfer_from, freeze_at, terminate_at):
     # NOTE: this model has its own noise layer at the top !!!
-    from experiments.hmmvsrnn_reco.a_data import cachedir
+    from experiments.a_data import cachedir
     from experiments.utils import reload_best_hmm, reload_best_rnn
 
     report = shelve.open(os.path.join(cachedir, transfer_from))
@@ -396,7 +390,7 @@ def bgr_lstm(feats_shape, batch_size=6, max_time=64, encoder_kwargs=None):
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, learn_init=True, name="lstm_bw")
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
-    l_cc1 = DropoutLayer(l_cc1, p=.3)
+    l_cc1 = DropoutLayer(l_cc1, p=0.3)
 
     l_linout = lasagne.layers.DenseLayer(
         l_cc1, num_units=21, num_leading_axes=2, nonlinearity=None,
@@ -442,7 +436,7 @@ def fusion_lstm(skel_feats_shape, bgr_feats_shape, max_time=64, batch_size=6,
         l_d1, num_units=n_lstm_units, mask_input=l_mask,
         backwards=True, grad_clipping=1., learn_init=True)
     l_cc1 = lasagne.layers.ConcatLayer((l_lstm1, l_lstm2), axis=2)
-    l_cc1 = DropoutLayer(l_cc1, p=.3)
+    # l_cc1 = DropoutLayer(l_cc1, p=.3)
 
     l_linout = lasagne.layers.DenseLayer(
         l_cc1, num_units=21, num_leading_axes=2, nonlinearity=None,

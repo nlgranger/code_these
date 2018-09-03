@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import os
 import shelve
 from functools import partial
@@ -16,7 +17,8 @@ from lproc import rmap, subset
 
 from sltools.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
-from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length
+from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length, \
+    MultiprocessSequence
 
 from experiments.a_data import cachedir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
@@ -213,7 +215,6 @@ def train_one_epoch(report_key):
     minibatches = seqtools.batch(
         chunked_sequences, batch_size, drop_last=True,
         collate_fn=collate)
-    minibatches = seqtools.prefetch(minibatches, max_cached=10, nworkers=2)
 
     # train
     t = time.time()
@@ -260,17 +261,17 @@ def update_setup(epoch_prefix):
     global l_rate, min_progress
 
     # Compute average loss progress by epoch over the last 10 epochs (linear reg)
-    last_reports = sorted(k for k in report.keys() if k.startswith(epoch_prefix))[-10:]
+    last_reports = sorted(k for k in report.keys() if k.startswith(epoch_prefix))[-5:]
     multibatch_losses = np.concatenate([report[k]["batch_losses"] for k in last_reports])
     avg_progress = np.cov(multibatch_losses, np.arange(len(multibatch_losses)))[1, 0] \
         / np.var(np.arange(len(multibatch_losses))) \
         * len(multibatch_losses) / len(last_reports)
 
     print('    progress ~ {:.4e}'.format(avg_progress))
-    if avg_progress > - min_progress:
+    if avg_progress > - min_progress and l_rate > 1e-4:
         print("decreasing learning rate: {} -> {}".format(l_rate, l_rate * .3))
-        l_rate *= .3
-        min_progress *= .3
+        l_rate /= 3
+        min_progress /= 3
 
 
 resume("epoch")

@@ -4,7 +4,7 @@ import json
 import shutil
 import pprint
 
-from experiments.hmmvsrnn_reco.a_data import cachedir
+from experiments.a_data import cachedir
 
 jobfile = sys.argv[-1]
 while True:
@@ -30,7 +30,7 @@ while True:
     os.putenv('PYTHONPATH', ":".join(sys.path + [os.getcwd()]))
     python = sys.executable
 
-    script = "experiments/hmmvsrnn_reco/d_train_" + todo['model'] + ".py"
+    script = "experiments/d_train_" + todo['model'] + ".py"
     args = [
         script,
         "--name='" + todo['name'] + "'",
@@ -46,12 +46,12 @@ while True:
         sys.exit(-1)
 
     args = ['-m', 'jupyter', 'nbconvert',
-            "experiments/hmmvsrnn_reco/e_analyse_" + todo['model'] + ".ipynb",
+            "experiments/e_analyse_" + todo['model'] + ".ipynb",
             "--to", "notebook", "--execute", "--ExecutePreprocessor.timeout=720",
             "--output", todo['name'] + ".ipynb"]
     ret = os.system(python + " " + " ".join(args))
     if ret != 0:
         sys.exit(-1)
 
-    shutil.move(os.path.join("experiments/hmmvsrnn_reco/", todo['name'] + ".ipynb"),
+    shutil.move(os.path.join("experiments/", todo['name'] + ".ipynb"),
                 os.path.join(cachedir, todo['name'] + ".ipynb"))

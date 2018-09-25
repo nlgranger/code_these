@@ -5,21 +5,6 @@ import cv2
 
 # Math ----------------------------------------------------------------------------------
 
-def simple_mode_search(x, n_iter=10):
-    x = np.asarray(x)
-    s = x.shape[1:]
-    x = x.reshape(x.shape[0], -1)
-    m = np.mean(x, axis=0)
-    subset = np.full(len(x), True, dtype=np.bool)
-    for _ in range(n_iter):
-        m = np.mean(x[subset], axis=0)
-        d = np.linalg.norm(x - m, axis=1)
-        subset = d <= 2 * np.mean(d[subset])
-        if subset.sum() == 0:
-            break
-    return m.reshape(s)
-
-
 def dichotomy(test, a, b, it=5):
     m = (a + b) / 2.0
     if it == 0:

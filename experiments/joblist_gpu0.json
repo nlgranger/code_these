@@ -1,4 +1,32 @@
 [{
+  "name": "hmm_skel_tc1",
+  "model": "hmm",
+  "modality": "skel",
+  "variant": "tc3",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 1,
+    "filter_dilation": 1,
+    "num_tc_filters": 256,
+    "dropout": 0.1
+  }
+},{
+  "name": "rnn_skel_tc1",
+  "model": "rnn",
+  "modality": "skel",
+  "variant": "tc3",
+  "notes": "",
+  "batch_size": 16,
+  "max_time": 128,
+  "encoder_kwargs": {
+    "tconv_sz": 1,
+    "filter_dilation": 1,
+    "num_tc_filters": 256,
+    "dropout": 0.1
+  }
+},{
   "name": "hmm_skel_tc3",
   "model": "hmm",
   "modality": "skel",

@@ -17,7 +17,7 @@ from sltools.transform import \
 from datasets import chalearn2014 as dataset
 
 
-cachedir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache.run7")
+cachedir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "cache.run1")
 gloss_seqs = None
 train_subset, val_subset, test_subset = None, None, None
 pose2d_seqs = None

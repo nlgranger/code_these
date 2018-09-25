@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import sys
 import os
 import shelve
 from functools import partial
@@ -9,6 +8,7 @@ import argparse
 import datetime
 import json
 import time
+import itertools
 
 import numpy as np
 import lasagne
@@ -17,8 +17,7 @@ from lproc import rmap, subset
 
 from sltools.utils import gloss2seq
 from sltools.models.rnn import build_predict_fn, build_train_fn
-from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length, \
-    MultiprocessSequence
+from sltools.nn_utils import compute_scores, seq_ce_loss, adjust_length
 
 from experiments.a_data import cachedir, gloss_seqs, durations, \
     train_subset, val_subset, vocabulary
@@ -102,12 +101,12 @@ else:
 
 feat_seqs_train = [subset(f, train_subset) for f in feat_seqs]
 gloss_seqs_train = subset(gloss_seqs, train_subset)
-durations_train = subset(durations, train_subset)
+durations_train = durations[train_subset]
 targets_train = rmap(lambda g, d: gloss2seq(g, d, 0),
                      gloss_seqs_train, durations_train)
 feat_seqs_val = [subset(f, val_subset) for f in feat_seqs]
 gloss_seqs_val = subset(gloss_seqs, val_subset)
-durations_val = subset(durations, val_subset)
+durations_val = durations[val_subset]
 targets_val = rmap(lambda g, d: gloss2seq(g, d, 0),
                    gloss_seqs_val, durations_val)
 
@@ -135,6 +134,7 @@ model_dict = build_model_fn(
     encoder_kwargs=encoder_kwargs)
 
 predict_fn = build_predict_fn(model_dict, batch_size, max_time)
+# predict_fn = None
 
 
 # Training ------------------------------------------------------------------------------
@@ -148,6 +148,7 @@ updates_fn = lasagne.updates.adam
 train_batch_fn = build_train_fn(
     model_dict, max_time, model_dict['warmup'],
     loss_fn, updates_fn)
+# train_batch_fn = None
 
 if modality == 'transfer':  # slow down learning otherwise best epoch is skipped
     save_every = 1
@@ -181,46 +182,51 @@ def resume(report_prefix):
         e = resume_at + 1
 
 
-def train_one_epoch(report_key):
+# turn sequences into chunks
+class MinibatchSampler:
+    def __init__(self):
+        step = max_time - 2 * model_dict['warmup']
+        self.chunks = np.array([(i, k, min(d, k + max_time))
+                                for i, d in enumerate(durations_train)
+                                for k in range(0, d - model_dict['warmup'], step)])
+        self.weights = np.ones((len(self.chunks),)) / len(self.chunks)
+
+    def __call__(self):
+        # sample chunks to cover all timesteps
+        batch_idx = np.random.choice(
+            len(self.chunks), size=batch_size, replace=False, p=self.weights)
+        self.weights[batch_idx] /= 10
+        self.weights /= np.sum(self.weights)
+        batch_chunks = np.copy(self.chunks[batch_idx])
+
+        # randomize subsegments edges
+        batch_dur = durations_train[batch_chunks[:, 0]]
+        offset = np.random.randint(-max_time // 2, max_time // 2, size=batch_size)
+        offset = np.fmax(0, batch_chunks[:, 1] + offset) - batch_chunks[:, 1]
+        offset = np.fmin(batch_dur, batch_chunks[:, 2] + offset) - batch_chunks[:, 2]
+        batch_chunks[:, (1, 2)] += offset[:, None]
+
+        # assemble minibatch
+        out = []
+        for modality_seqs in feat_seqs_train:
+            out.append(np.stack([adjust_length(modality_seqs[i][a:b], max_time)
+                                 for i, a, b in batch_chunks]))
+
+        out.append(np.stack([adjust_length(targets_train[i][a:b], max_time)
+                             for i, a, b in batch_chunks]).astype(np.int32))
+        out.append(batch_dur.astype(np.int32))
+
+        return tuple(out)
+
+
+def train_n_steps(report_key, batch_it, n_steps):
     batch_losses = []
-    step = max_time - 2 * model_dict['warmup']
-
-    # turn sequences into chunks
-    chunks = [(i, k, min(d, k + max_time))
-              for i, d in enumerate(durations_train)
-              for k in range(0, d - model_dict['warmup'], step)]
-    chunked_sequences = []
-    for feat in feat_seqs_train:
-        def get_chunk(i, t1, t2, feat_=feat):
-            return adjust_length(feat_[i][t1:t2], size=max_time, pad=0)
-
-        chunked_sequences.append(seqtools.starmap(get_chunk, chunks))
-    chunked_sequences.append(seqtools.starmap(
-        lambda i, t1, t2: adjust_length(targets_train[i][t1:t2], max_time, pad=-1),
-        chunks))
-    chunked_sequences.append([np.int32(t2 - t1) for _, t1, t2 in chunks])
-    chunked_sequences = seqtools.collate(chunked_sequences)
-
-    perm = np.random.permutation(len(chunked_sequences))
-    chunked_sequences = seqtools.gather(chunked_sequences, perm)
-
-    # turn into minibatches
-    null_sample = chunked_sequences[0]
-    n_features = len(null_sample)
-
-    def collate(b_):
-        return [np.stack([b_[i][c] for i in range(batch_size)])
-                for c in range(n_features)]
-
-    minibatches = seqtools.batch(
-        chunked_sequences, batch_size, drop_last=True,
-        collate_fn=collate)
 
     # train
-    t = time.time()
     running_loss = None
-    for b in minibatches:
-        loss = train_batch_fn(*b, l_rate)
+    t = time.time()
+    for minibatch in itertools.islice(batch_it, n_steps):
+        loss = train_batch_fn(*minibatch, l_rate)
         batch_losses.append(loss)
         running_loss = .99 * running_loss + .01 * loss if running_loss else loss
         if time.time() - t > 1:
@@ -276,8 +282,12 @@ def update_setup(epoch_prefix):
 
 resume("epoch")
 
+minibatch_it = seqtools.load_buffers(
+    MinibatchSampler(), max_cached=10, nworkers=1, start_hook=np.random.seed)
+step = max_time - 2 * model_dict['warmup']
+steps_by_epoch = int(sum(durations_train) // (step * batch_size))
 while e < (50 if modality == 'transfer' else 150):
-    train_one_epoch("epoch {:04d}".format(e))
+    train_n_steps("epoch {:04d}".format(e), minibatch_it, steps_by_epoch)
     if (e + 1) % save_every == 0:
         extra_report("epoch {:04d}".format(e))
     update_setup("epoch")

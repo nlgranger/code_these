@@ -131,8 +131,8 @@ recognizer = HMMRecognizer(chains_lengths, posterior, vocabulary)
 
 # Run training iterations ---------------------------------------------------------------
 
-resume_at = sorted(e for e in report.keys() if e.startswith("epoch"))
-resume_at = "" if len(resume_at) == 0 else resume_at[-1]
+resume_at = sorted(int(e[5:]) for e in report.keys() if e.startswith("epoch"))
+resume_at = 0 if len(resume_at) == 0 else resume_at[-1]
 
 # Posterior training settings
 l_rate = 1e-3
@@ -150,14 +150,10 @@ for i in range(len(epoch_schedule)):
     print("# It. {} -----------------------------------------------------".format(i))
 
     # Resume interrupted training
-    if "epoch {:>5d}".format(i) < resume_at:
-        print("Skipping")
-        continue
-    elif "epoch {:>5d}".format(i) == resume_at:
+    if i + 1 == resume_at:
         print("reloading from partial training")
-        recognizer = report[resume_at]['model']
-        fit_settings = report[resume_at]['fit_settings']
-        chains_lengths = fit_settings['chains_lengths']
+        recognizer = report["epoch {:>3d}".format(i)]['model']
+        fit_settings = report["epoch {:>3d}".format(i)]['fit_settings']
         l_rate = fit_settings['l_rate']
         updates = fit_settings['updates']
         loss = fit_settings['loss']
@@ -165,6 +161,9 @@ for i in range(len(epoch_schedule)):
         epoch_schedule = fit_settings['epoch_schedule']
         refit_schedule = fit_settings['refit_schedule']
         prior_smoothing = fit_settings['prior_smoothing']
+        continue
+    elif i < resume_at - 1:
+        print("Skipping")
         continue
 
     # Fit posterior

@@ -4,13 +4,14 @@ import os
 import shelve
 from time import time
 from itertools import combinations
+import logging
 
 import cv2
 import numpy as np
 import seqtools
 from numpy.lib.format import open_memmap
 from scipy.ndimage.filters import gaussian_filter1d
-from sltools.utils import split_seq, simple_mode_search, crop
+from sltools.utils import split_seq, crop
 from sltools.preprocess import fix_contrast
 
 from experiments.a_data import cachedir, train_subset, \
@@ -36,10 +37,22 @@ crop_size = (32, 32)
 
 def body_scale(positions, tgt_shoulder_w=.34):
     """Return apparent distance to the subject."""
-    shoulder_w = simple_mode_search(
-        np.linalg.norm(positions[:, joints.ShoulderLeft]
-                       - positions[:, joints.ShoulderRight], axis=1))
-    return tgt_shoulder_w / shoulder_w if shoulder_w > 0.2 else 1
+    dists = np.linalg.norm(positions[:, joints.ShoulderLeft]
+                           - positions[:, joints.ShoulderRight], axis=1)
+
+    shoulder_w = np.mean(dists)
+    for _ in range(5):
+        mask = dists - shoulder_w < np.std(dists)
+        if np.any(mask):
+            shoulder_w = np.mean(dists[mask])
+        else:
+            logging.warning("strange body scale")
+
+    if shoulder_w > 0.2:
+        return tgt_shoulder_w / shoulder_w
+    else:
+        logging.warning("strange body scale")
+        return 1
 
 
 def skel_feat(pose_seq):
@@ -249,44 +262,44 @@ def transfer_feat_seqs(transfer_from, freeze_at):
 def prepare():
     global feat_seqs
 
-    # Processing pipeline for skeleton
-    feat_seqs = seqtools.smap(skel_feat, pose3d_seqs)
-
-    # Export to file
-    feat_size = feat_seqs[0][0].shape
-    print("skel feat size: {}".format(feat_size))
-    total_duration = sum(durations)
-    subsequences = np.stack([np.cumsum(durations) - durations,
-                             np.cumsum(durations)], axis=1)
-    skel_dump_file = os.path.join(cachedir, 'skel_seqs.npy')
-    storage = open_memmap(skel_dump_file, 'w+', dtype=np.float32,
-                          shape=(total_duration,) + feat_size)
-    seqs_storage = split_seq(storage, subsequences)
-
-    print("computing feats .... eta ..:..:..", end="", flush=True)
-    tstart = time()
-    for i, f in enumerate(feat_seqs):
-        seqs_storage[i][...] = f
-        progress = subsequences[i, 1] / total_duration
-        elapsed = time() - tstart
-        eta = int(elapsed / progress - elapsed)
-        print("\rcomputing feats {:3.0f}% eta {:02d}:{:02d}:{:02d}".format(
-                progress * 100, eta // 3600, (eta % 3600) // 60, eta % 60),
-              end="", flush=True)
-
-    print("")
-
-    # Post processing (normalize over gesture poses)
-    train_mask = np.full((total_duration,), False)
-    for r in train_subset:
-        sstart, _ = subsequences[r]
-        for _, gstart, gstop in gloss_seqs[r]:
-            train_mask[sstart + gstart:sstart + gstop] = True
-    train_mask = np.random.permutation(np.where(train_mask)[0])[:100000]
-    m = np.mean(storage[train_mask, :], axis=0, keepdims=True)
-    s = np.std(storage[train_mask, :], axis=0, keepdims=True)
-    storage[:, :] -= m
-    storage[:, :] /= s
+    # # Processing pipeline for skeleton
+    # feat_seqs = seqtools.smap(skel_feat, pose3d_seqs)
+    #
+    # # Export to file
+    # feat_size = feat_seqs[0][0].shape
+    # print("skel feat size: {}".format(feat_size))
+    # total_duration = sum(durations)
+    # subsequences = np.stack([np.cumsum(durations) - durations,
+    #                          np.cumsum(durations)], axis=1)
+    # skel_dump_file = os.path.join(cachedir, 'skel_seqs.npy')
+    # storage = open_memmap(skel_dump_file, 'w+', dtype=np.float32,
+    #                       shape=(total_duration,) + feat_size)
+    # seqs_storage = split_seq(storage, subsequences)
+    #
+    # print("computing feats .... eta ..:..:..", end="", flush=True)
+    # tstart = time()
+    # for i, f in enumerate(feat_seqs):
+    #     seqs_storage[i][...] = f
+    #     progress = subsequences[i, 1] / total_duration
+    #     elapsed = time() - tstart
+    #     eta = int(elapsed / progress - elapsed)
+    #     print("\rcomputing feats {:3.0f}% eta {:02d}:{:02d}:{:02d}".format(
+    #             progress * 100, eta // 3600, (eta % 3600) // 60, eta % 60),
+    #           end="", flush=True)
+    #
+    # print("")
+    #
+    # # Post processing (normalize over gesture poses)
+    # train_mask = np.full((total_duration,), False)
+    # for r in train_subset:
+    #     sstart, _ = subsequences[r]
+    #     for _, gstart, gstop in gloss_seqs[r]:
+    #         train_mask[sstart + gstart:sstart + gstop] = True
+    # train_mask = np.random.permutation(np.where(train_mask)[0])[:100000]
+    # m = np.mean(storage[train_mask, :], axis=0, keepdims=True)
+    # s = np.std(storage[train_mask, :], axis=0, keepdims=True)
+    # storage[:, :] -= m
+    # storage[:, :] /= s
 
     # Processing pipeline for BGR frames
     feat_seqs = seqtools.smap(bgr_feats, frame_seqs, pose2d_seqs)
@@ -305,14 +318,25 @@ def prepare():
 
     print("computing feats .... eta ..:..:..", end="", flush=True)
     tstart = time()
+    tlast = tstart
+    rate = 0
+    fps = 0
     for i, f in enumerate(feat_seqs):
         seqs_storage[i][...] = f
-        progress = subsequences[i, 1] / total_duration
-        elapsed = time() - tstart
+
+        last_time = time() - tlast
+        tlast = time()
+        rate = .9 * rate + .1 / last_time
+        fps = round(.9 * fps + .1 * durations[i] / last_time)
+
+        elapsed = tlast - tstart
+        # progress = subsequences[i, 1] / total_duration
+        progress = (i + 1) / len(subsequences)
         eta = int(elapsed / progress - elapsed)
-        print("\rcomputing feats {:3.0f}% eta {:02d}:{:02d}:{:02d}".format(
-                progress * 100, eta // 3600, (eta % 3600) // 60, eta % 60),
-              end="", flush=True)
+        h, m, s = eta // 3600, (eta % 3600) // 60, eta % 60
+
+        print("\rcomputing feats, eta {:02d}:{:02d}:{:02d}, rate {:.2f}, fps {}".format(
+            h, m, s, rate, fps), end="", flush=True)
 
     print("")
 
